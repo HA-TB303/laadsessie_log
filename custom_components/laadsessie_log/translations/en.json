@@ -11,6 +11,7 @@
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
           "status_niet_aangesloten": "Statussen 'niet aangesloten'",
+          "tarief_interval": "Hoe vaak wijzigt het tarief?",
           "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
         },
         "data_description": {
@@ -20,6 +21,7 @@
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
           "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
+          "tarief_interval": "Bepaalt hoe lang een tariefwaarde als geldig wordt beschouwd. Kies 'Per kwartier/uur' voor een dynamisch tarief (bijv. Zonneplan); kies 'Per maand' voor een vast tarief dat zelf maar af en toe wijzigt (bijv. Luminus MaxxFlex) om onterechte storingsmeldingen te voorkomen.",
           "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
         }
       }
@@ -40,6 +42,7 @@
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
           "status_niet_aangesloten": "Statussen 'niet aangesloten'",
+          "tarief_interval": "Hoe vaak wijzigt het tarief?",
           "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
         },
         "data_description": {
@@ -49,8 +52,18 @@
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
           "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
+          "tarief_interval": "Bepaalt hoe lang een tariefwaarde als geldig wordt beschouwd. Kies 'Per kwartier/uur' voor een dynamisch tarief (bijv. Zonneplan); kies 'Per maand' voor een vast tarief dat zelf maar af en toe wijzigt (bijv. Luminus MaxxFlex) om onterechte storingsmeldingen te voorkomen.",
           "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
         }
+      }
+    }
+  },
+  "selector": {
+    "tarief_interval": {
+      "options": {
+        "kwartier": "Per kwartier/uur (dynamisch tarief)",
+        "dag": "Per dag",
+        "maand": "Per maand (vast tarief)"
       }
     }
   },

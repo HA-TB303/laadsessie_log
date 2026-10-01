@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, tzinfo
 QUARTER = timedelta(minutes=15)
 END_GRACE = timedelta(minutes=2)
 PRICE_PROBE = timedelta(seconds=60)
-TARIFF_STALE = timedelta(hours=3)
+TARIFF_STALE_DEFAULT = timedelta(hours=3)
 MIN_SESSION_KWH = 0.05
 
 # Statussen die niets zeggen over wel/niet aangesloten (glitches bij herverbinden)
@@ -35,9 +35,15 @@ def _dt(value: str | None) -> datetime | None:
 
 
 class SessionTracker:
-    def __init__(self, tz: tzinfo, disconnected: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        tz: tzinfo,
+        disconnected: set[str] | None = None,
+        tariff_stale: timedelta | None = None,
+    ) -> None:
         self.tz = tz
         self.disconnected = disconnected or {"disconnected"}
+        self.tariff_stale = tariff_stale or TARIFF_STALE_DEFAULT
         self.slots: dict[str, dict] = {}  # "HH:MM" -> {"prijs", "datum"}
         self.timeline: list[tuple[datetime, float | None]] = []
         self.last_ts: datetime | None = None
@@ -136,7 +142,7 @@ class SessionTracker:
     def _live_price(self, q_start: datetime) -> float | None:
         probe = q_start + PRICE_PROBE
         entry = self._tariff_at(probe)
-        if entry and entry[1] is not None and probe - entry[0] <= TARIFF_STALE:
+        if entry and entry[1] is not None and probe - entry[0] <= self.tariff_stale:
             return entry[1]
         for ts, value in self.timeline:
             if q_start <= ts < q_start + QUARTER and value is not None:
@@ -238,8 +244,14 @@ class SessionTracker:
         }
 
     @classmethod
-    def from_dict(cls, data: dict, tz: tzinfo, disconnected: set[str] | None = None) -> SessionTracker:
-        t = cls(tz, disconnected)
+    def from_dict(
+        cls,
+        data: dict,
+        tz: tzinfo,
+        disconnected: set[str] | None = None,
+        tariff_stale: timedelta | None = None,
+    ) -> SessionTracker:
+        t = cls(tz, disconnected, tariff_stale)
         t.slots = data.get("slots", {})
         t.timeline = [(_dt(ts), v) for ts, v in data.get("timeline", [])]
         t.last_ts = _dt(data.get("last_ts"))

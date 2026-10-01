@@ -15,11 +15,14 @@ from .const import (
     CONF_POWER,
     CONF_SESSION_ENERGY,
     CONF_STATUS,
+    CONF_TARIEF_INTERVAL,
     CONF_TARIFF,
     CONF_TARIFF_NAME,
     DEFAULT_DISCONNECTED,
+    DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
+    TARIEF_INTERVAL_UREN,
 )
 
 
@@ -47,6 +50,15 @@ def _schema(values: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_DISCONNECTED, default=values.get(CONF_DISCONNECTED, DEFAULT_DISCONNECTED)
             ): selector.TextSelector(),
+            vol.Required(
+                CONF_TARIEF_INTERVAL, default=values.get(CONF_TARIEF_INTERVAL, DEFAULT_TARIEF_INTERVAL)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(TARIEF_INTERVAL_UREN),
+                    translation_key=CONF_TARIEF_INTERVAL,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Required(CONF_DASHBOARD, default=values.get(CONF_DASHBOARD, True)): selector.BooleanSelector(),
         }
     )
