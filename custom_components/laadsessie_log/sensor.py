@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import CONF_TARIFF, DOMAIN, SIGNAL_UPDATE
+from .const import CONF_TARIFF, DOMAIN, REPORT_URL, SIGNAL_UPDATE
 
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -123,7 +123,7 @@ class Reports(_Base):
 
     @property
     def extra_state_attributes(self):
-        return {"rapporten": self.log.reports, "vorige_maand_pdf": "/local/laadrapporten/laadrapport_vorige_maand.pdf"}
+        return {"rapporten": self.log.reports, "vorige_maand_pdf": f"{REPORT_URL}/laadrapport_vorige_maand.pdf"}
 
 
 class TariffStatus(_Base):

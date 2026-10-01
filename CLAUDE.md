@@ -50,6 +50,7 @@ gh repo clone HA-TB303/laadsessie_log
 | `pdf.py` | `build_report`: genereert de PDF zonder externe libraries (`requirements` is leeg – zo houden). |
 | `sensor.py` | Sensoren: energie/kosten deze maand, actieve sessie, rapporten, tariefstatus. |
 | `text.py` | Tekstentiteiten naam/adres/kenteken voor op het rapport; wijziging maakt na 10 s alle rapporten opnieuw. |
+| `dashboard.py` | Ingebouwd alleen-lezen Lovelace-dashboard `/laadsessie-log` (zijbalk "Laadsessies"), bij elke load opgebouwd uit de opties + entity registry (op `unique_id`). Gebruikt interne lovelace-API (`LOVELACE_DATA`, `LovelaceConfig`) – na HA-updates controleren. |
 | `config_flow.py` | Config- en options-flow (één instantie, `single_config_entry`). |
 | `viewer/` | PDF.js-viewer, wordt bij start gekopieerd naar `www/laadrapporten/viewer`. |
 | `translations/` | `nl.json` en `en.json` (beide Nederlandstalig); houd ze gelijk en voeg nieuwe velden/services in beide toe. |
