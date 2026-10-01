@@ -177,6 +177,7 @@ def build_report(
     provisional: bool,
     tariff_name: str = "Zonneplan",
     tariff_label: str = "dynamisch kwartiertarief",
+    tarief_vast: bool = False,
 ) -> bytes:
     pdf = PDF()
     period = f"{MONTHS[month - 1]} {year}"
@@ -316,8 +317,9 @@ def build_report(
         pdf.text(MARGIN, rep.y, n, 8, color=MUTED)
         rep.y -= 11
 
-    # Specificatie per kwartier
-    if sessions:
+    # Specificatie per kwartier (overgeslagen bij een vast tarief: elke regel zou toch
+    # hetzelfde tarief tonen, dat voegt niets toe aan het overzicht hierboven).
+    if sessions and not tarief_vast:
         rep.page()
         pdf.text(MARGIN, rep.y, "Specificatie per kwartier", 14, bold=True)
         rep.y -= 12
