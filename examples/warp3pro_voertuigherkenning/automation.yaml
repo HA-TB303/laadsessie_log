@@ -1,0 +1,65 @@
+# Vervang de twee tag_id-waarden hieronder door de echte NFC-tag-ID's van je eigen
+# auto's (op te vragen via GET http://<lader-ip>/nfc/config op de WARP-lader).
+- id: warp3pro_voertuig_tag_toewijzen
+  alias: 'Warp3 Pro: laadsessie toewijzen aan Tesla of Kia E-Niro'
+  description: Detecteert bij het aansluiten van de laadkabel welke auto is aangesloten
+    (Tesla via binary_sensor.duracell_charger, anders Kia E-Niro) en autoriseert de
+    laadsessie op de Warp3 Pro via NFC-tag-injectie op de bijbehorende user. Herautoriseert
+    ook automatisch zodra er PV-overschot ontstaat terwijl de lader nog op "Waiting
+    for release" staat (auto_start_charging staat uit, dus een tag-injectie zonder
+    overschot leidt niet vanzelf tot een latere start).
+  triggers:
+  - trigger: state
+    entity_id: binary_sensor.warp3pro_cable
+    to: 'on'
+    id: cable_plugged
+  - trigger: numeric_state
+    entity_id: sensor.warp3pro_meter_1_power_active_l_sum_im_ex_diff
+    below: -1380
+    for:
+      minutes: 2
+    id: surplus_retry
+  conditions:
+  - condition: or
+    conditions:
+    - condition: trigger
+      id: cable_plugged
+    - condition: and
+      conditions:
+      - condition: trigger
+        id: surplus_retry
+      - condition: state
+        entity_id: binary_sensor.warp3pro_cable
+        state: 'on'
+      - condition: state
+        entity_id: sensor.warp3pro_chargerstate_text
+        state: Waiting for release
+  actions:
+  - action: button.press
+    target:
+      entity_id: button.duracell_wake_up
+  - action: button.press
+    target:
+      entity_id: button.duracell_force_data_update
+  - wait_template: '{{ is_state(''binary_sensor.duracell_charger'', ''on'') }}'
+    timeout:
+      seconds: 20
+    continue_on_timeout: true
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: binary_sensor.duracell_charger
+        state: 'off'
+      sequence:
+      - action: rest_command.warp3pro_inject_tag_start
+        data:
+          tag_type: 2
+          tag_id: AA:BB:CC:DD:EE:FF:01
+      alias: Kia E-Niro aangesloten (Tesla bevestigd niet aangesloten)
+    default:
+    - action: rest_command.warp3pro_inject_tag_start
+      data:
+        tag_type: 2
+        tag_id: AA:BB:CC:DD:EE:FF:02
+    alias: Tesla aangesloten (standaard, tenzij bevestigd dat Tesla niet is ingeplugd)
+  mode: single

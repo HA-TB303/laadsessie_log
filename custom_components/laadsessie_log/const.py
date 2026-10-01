@@ -11,7 +11,13 @@ CONF_TARIFF_NAME = "tarief_naam"
 CONF_DISCONNECTED = "status_niet_aangesloten"
 CONF_DASHBOARD = "dashboard"
 CONF_TARIEF_INTERVAL = "tarief_interval"
-CONF_INFO = ("naam", "adres", "kenteken")
+CONF_VOERTUIG = "voertuig"
+CONF_NAAM = "naam"
+CONF_ADRES = "adres"
+CONF_KENTEKEN = "kenteken"
+CONF_INFO = (CONF_NAAM, CONF_ADRES, CONF_KENTEKEN)
+
+ONBEKEND_VOERTUIG = "Onbekend"
 
 DASHBOARD_URL = "laadsessie-log"
 REPORT_URL = "/local/laadrapporten"

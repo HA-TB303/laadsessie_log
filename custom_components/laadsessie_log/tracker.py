@@ -54,6 +54,8 @@ class SessionTracker:
         self.session: dict | None = None
         self.pending_end: datetime | None = None
         self.session_energy: tuple[datetime, float] | None = None
+        self.voertuig: str | None = None
+        self.q_voertuig: str | None = None
         self.outage: dict | None = None
         self.outputs: list[tuple[str, dict]] = []
 
@@ -81,11 +83,21 @@ class SessionTracker:
                 "onvolledig": first,
             }
             self.q_energy = 0.0
+            # Voertuig van een vorige sessie niet laten doorlekken; wordt (opnieuw)
+            # vastgesteld via feed_voertuig() zodra de herkenning een resultaat geeft.
+            self.voertuig = None
+            self.q_voertuig = None
 
     def feed_session_energy(self, ts: datetime, value: float | None) -> None:
         ts = self._advance(ts)
         if value is not None:
             self.session_energy = (ts, value)
+
+    def feed_voertuig(self, ts: datetime, value: str | None) -> None:
+        self._advance(ts)
+        value = (value or "").strip()
+        if value and value.lower() not in IGNORED_STATUS:
+            self.voertuig = value
 
     def feed_tariff(self, ts: datetime, value: float | None) -> None:
         ts = self._advance(ts)
@@ -122,6 +134,11 @@ class SessionTracker:
     def _integrate(self, ts: datetime) -> None:
         if self.session and self.power and self.power > 0 and ts > self.last_ts:
             self.q_energy += self.power * (ts - self.last_ts).total_seconds() / 3600
+            # Voertuig vastleggen op het moment dat er echt energie bijkomt, niet pas
+            # bij het wegschrijven van het kwartier of afsluiten van de sessie: na het
+            # loskoppelen van de kabel kan de herkenningssensor sneller terugvallen op
+            # "onbekend" dan de aansluitstatus zelf bijwerkt.
+            self.q_voertuig = self.voertuig
         if ts > self.last_ts:
             self.last_ts = ts
 
@@ -172,8 +189,11 @@ class SessionTracker:
 
     def _add_row(self, q_start: datetime, price: dict) -> None:
         if self.session is not None and self.q_energy > 0.0001:
-            self.session["kwartieren"].append({"start": _iso(q_start), "kwh_vermogen": self.q_energy, **price})
+            self.session["kwartieren"].append(
+                {"start": _iso(q_start), "kwh_vermogen": self.q_energy, "voertuig": self.q_voertuig, **price}
+            )
         self.q_energy = 0.0
+        self.q_voertuig = None
 
     def _close_quarter(self, boundary: datetime) -> None:
         price = self._price(self.q_start, update=True)
@@ -197,7 +217,10 @@ class SessionTracker:
 
         if meter is not None and integrated <= 0:
             q = floor_quarter(start)
-            rows.append({"start": _iso(q), "kwh_vermogen": 0.0, **self._price_from_slots(q)})
+            voertuig = self.q_voertuig or self.voertuig
+            rows.append(
+                {"start": _iso(q), "kwh_vermogen": 0.0, "voertuig": voertuig, **self._price_from_slots(q)}
+            )
         total_kwh = meter if meter is not None else integrated
         if total_kwh < MIN_SESSION_KWH:
             return
@@ -209,6 +232,16 @@ class SessionTracker:
                 r["kwh"] = total_kwh / len(rows)
             r["kosten"] = r["kwh"] * r["prijs"] if r["prijs"] is not None else 0.0
 
+        # Voertuig van de sessie: het voertuig met de meeste geladen energie over de
+        # kwartieren heen (vastgelegd tijdens het laden zelf, zie _integrate), niet het
+        # mogelijk inmiddels teruggevallen self.voertuig op het moment van afsluiten.
+        voertuig_kwh: dict[str, float] = {}
+        for r in rows:
+            v = r.get("voertuig")
+            if v:
+                voertuig_kwh[v] = voertuig_kwh.get(v, 0.0) + r["kwh_vermogen"]
+        sessie_voertuig = max(voertuig_kwh, key=voertuig_kwh.get) if voertuig_kwh else None
+
         session.update(
             {
                 "einde": _iso(end),
@@ -217,6 +250,7 @@ class SessionTracker:
                 "kwh_bron": "laadpaal" if meter is not None else "vermogen",
                 "kosten": sum(r["kosten"] for r in rows),
                 "terugval": any(r["bron"] != SOURCE_LIVE for r in rows),
+                "voertuig": sessie_voertuig,
             }
         )
         self.outputs.append(("session_finished", session))
@@ -240,6 +274,8 @@ class SessionTracker:
             "session": self.session,
             "pending_end": _iso(self.pending_end),
             "session_energy": [_iso(self.session_energy[0]), self.session_energy[1]] if self.session_energy else None,
+            "voertuig": self.voertuig,
+            "q_voertuig": self.q_voertuig,
             "outage": self.outage,
         }
 
@@ -262,6 +298,8 @@ class SessionTracker:
         t.pending_end = _dt(data.get("pending_end"))
         se = data.get("session_energy")
         t.session_energy = (_dt(se[0]), se[1]) if se else None
+        t.voertuig = data.get("voertuig")
+        t.q_voertuig = data.get("q_voertuig")
         t.outage = data.get("outage")
         # Vermogen is na een herstart onbekend tot de eerste nieuwe meting.
         t.power = None

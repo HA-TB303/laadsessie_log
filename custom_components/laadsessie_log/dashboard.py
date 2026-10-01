@@ -12,10 +12,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.json import json_bytes, json_fragment
 
 from .const import (
+    CONF_KENTEKEN,
     CONF_STATUS,
     CONF_TARIEF_INTERVAL,
     CONF_TARIFF,
     CONF_TARIFF_NAME,
+    CONF_VOERTUIG,
     DASHBOARD_URL,
     DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
@@ -36,9 +38,6 @@ _OWN_ENTITIES = {
     "actief": "sensor.laadsessie_actief",
     "rapporten": "sensor.laadrapporten",
     "tarief_status": "sensor.zonneplan_tarief_status",
-    "naam": "text.laadrapport_naam",
-    "kenteken": "text.laadrapport_kenteken",
-    "adres": "text.laadrapport_adres_laadpaal",
 }
 
 
@@ -57,12 +56,25 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
     e = _own_entities(hass)
     tariff_name = conf.get(CONF_TARIFF_NAME) or DEFAULT_TARIFF_NAME
     reports = e["rapporten"]
+    per_voertuig = bool(conf.get(CONF_VOERTUIG))
 
     tiles = [
         {"type": "tile", "entity": e["maand_kwh"], "name": "Geladen"},
         {"type": "tile", "entity": e["maand_kosten"], "name": "Kosten"},
         {"type": "tile", "entity": e["actief"], "name": "Actieve sessie"},
     ]
+    if per_voertuig or not conf.get(CONF_KENTEKEN):
+        # Zodra er per voertuig wordt gerapporteerd is een vast kenteken toch niet meer zinvol
+        # (zie ook _info() in __init__.py); toon dan altijd welk voertuig nu is aangesloten.
+        tiles.append(
+            {
+                "type": "markdown",
+                "content": (
+                    f"{{% set v = state_attr('{e['actief']}','voertuig') %}}\n"
+                    "**Aangesloten:** {{ v if v and v != 'Onbekend' else 'nee' }}"
+                ),
+            }
+        )
     if conf.get(CONF_STATUS):
         tiles.append({"type": "tile", "entity": conf[CONF_STATUS], "name": "Laadpaal"})
     tiles.append({"type": "tile", "entity": e["tarief_status"], "name": f"{tariff_name} tarief"})
@@ -71,12 +83,20 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         tegel_naam = TARIEF_INTERVAL_TEGEL.get(interval, TARIEF_INTERVAL_TEGEL[DEFAULT_TARIEF_INTERVAL])
         tiles.append({"type": "tile", "entity": conf[CONF_TARIFF], "name": tegel_naam})
 
+    kop = (
+        "| Maand | Voertuig | Sessies | kWh | Kosten | Bekijk | PDF | CSV |\n"
+        if per_voertuig
+        else "| Maand | Sessies | kWh | Kosten | Bekijk | PDF | CSV |\n"
+    )
+    lijn = "|:--|:--|--:|--:|--:|:-:|:-:|:-:|\n" if per_voertuig else "|:--|--:|--:|--:|:-:|:-:|:-:|\n"
+    voertuig_cel = "| {{ x.voertuig or '' }} " if per_voertuig else ""
     table = (
         f"{{% set r = state_attr('{reports}','rapporten') or [] %}}\n"
         "{% if r %}\n"
-        "| Maand | Sessies | kWh | Kosten | Bekijk | PDF | CSV |\n"
-        "|:--|--:|--:|--:|:-:|:-:|:-:|\n"
-        "{% for x in r %}| {{ x.maand }}{{ ' *(voorlopig)*' if x.voorlopig }} | {{ x.sessies }} "
+        f"{kop}{lijn}"
+        "{% for x in r %}| {{ x.maand }}{{ ' *(voorlopig)*' if x.voorlopig }} "
+        f"{voertuig_cel}"
+        "| {{ x.sessies }} "
         "| {{ '%.2f'|format(x.kwh) | replace('.',',') }} "
         "| €\u00a0{{ '%.2f'|format(x.kosten) | replace('.',',') }} "
         f"| <a href=\"{REPORT_URL}/viewer/viewer.html?file={{{{ x.pdf.split('/') | last }}}}\" "
@@ -88,6 +108,44 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         "{% endfor %}\n"
         "{% else %}Nog geen rapporten.{% endif %}"
     )
+
+    # Blokjes-sparkline als gewone (grote) markdown-tekst: een code-blok kreeg in de praktijk
+    # een kleurthema waarin de tekens onzichtbaar bleken, terwijl gewone tekst wel zichtbaar is.
+    grafiek = (
+        f"{{% set dagen = state_attr('{e['maand_kwh']}','per_dag') or [] %}}\n"
+        "{% set totaal = dagen | sum(attribute='kwh') %}\n"
+        "{% if totaal > 0 %}\n"
+        "{% set max_kwh = dagen | map(attribute='kwh') | max %}\n"
+        "##### {% for d in dagen %}"
+        "{{ '▁▂▃▄▅▆▇█'"
+        "[ ((d.kwh / max_kwh * 7) | round(0) | int) if max_kwh else 0 ] }}"
+        "{% endfor %}\n\n"
+        "Dag 1 t/m {{ dagen | length }} — totaal {{ '%.1f'|format(totaal)|replace('.',',') }} kWh, "
+        "piek {{ '%.1f'|format(max_kwh)|replace('.',',') }} kWh op dag "
+        "{{ (dagen | selectattr('kwh','equalto',max_kwh) | first).dag }}"
+        "{% else %}Nog geen laadsessies deze maand.{% endif %}"
+    )
+
+    grafiek_kaarten = [
+        {"type": "heading", "heading": "Laadsessies deze maand", "icon": "mdi:chart-bar"},
+        {"type": "markdown", "grid_options": {"columns": "full"}, "content": grafiek},
+    ]
+
+    rapporten_kaarten = [
+        {"type": "heading", "heading": "Rapporten", "icon": "mdi:file-document-multiple"},
+        {"type": "markdown", "grid_options": {"columns": "full"}, "content": table},
+    ]
+    if not per_voertuig:
+        # Bij losse rapporten per voertuig bestaat er geen eenduidig "vorige maand"-bestand meer;
+        # de kolom Bekijk in de tabel hierboven ontsluit dan elk rapport afzonderlijk.
+        rapporten_kaarten += [
+            {"type": "heading", "heading": "Rapport vorige maand", "icon": "mdi:file-pdf-box"},
+            {
+                "type": "iframe",
+                "url": f"{REPORT_URL}/viewer/viewer.html?file=laadrapport_vorige_maand.pdf",
+                "grid_options": {"columns": "full", "rows": 24},
+            },
+        ]
 
     return {
         "title": TITLE,
@@ -105,46 +163,28 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
                             {"type": "heading", "heading": "Laden deze maand", "icon": ICON},
                             *tiles,
                             {
-                                "type": "entities",
-                                "title": "Gegevens op het rapport",
-                                "entities": [
-                                    {"entity": e["naam"], "name": "Naam"},
-                                    {"entity": e["kenteken"], "name": "Kenteken"},
-                                    {"entity": e["adres"], "name": "Adres laadpaal"},
-                                ],
-                                "footer": {
-                                    "type": "buttons",
-                                    "entities": [
-                                        {
-                                            "entity": reports,
-                                            "name": "Alle rapporten opnieuw maken",
-                                            "icon": "mdi:file-refresh",
-                                            "show_icon": True,
-                                            "show_name": True,
-                                            "tap_action": {
-                                                "action": "perform-action",
-                                                "perform_action": f"{DOMAIN}.genereer_rapport",
-                                                "data": {"alle": True},
-                                            },
-                                        }
-                                    ],
+                                "type": "button",
+                                "entity": reports,
+                                "name": "Alle rapporten opnieuw maken",
+                                "icon": "mdi:file-refresh",
+                                "show_state": False,
+                                "tap_action": {
+                                    "action": "perform-action",
+                                    "perform_action": f"{DOMAIN}.genereer_rapport",
+                                    "data": {"alle": True},
                                 },
                             },
                         ],
                     },
                     {
                         "type": "grid",
+                        "column_span": 3,
+                        "cards": grafiek_kaarten,
+                    },
+                    {
+                        "type": "grid",
                         "column_span": 2,
-                        "cards": [
-                            {"type": "heading", "heading": "Rapporten", "icon": "mdi:file-document-multiple"},
-                            {"type": "markdown", "grid_options": {"columns": "full"}, "content": table},
-                            {"type": "heading", "heading": "Rapport vorige maand", "icon": "mdi:file-pdf-box"},
-                            {
-                                "type": "iframe",
-                                "url": f"{REPORT_URL}/viewer/viewer.html?file=laadrapport_vorige_maand.pdf",
-                                "grid_options": {"columns": "full", "rows": 24},
-                            },
-                        ],
+                        "cards": rapporten_kaarten,
                     },
                 ],
             }
