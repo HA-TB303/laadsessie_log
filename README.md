@@ -10,6 +10,7 @@ Home Assistant-integratie die laadsessies van je laadpaal per kwartier logt tege
 - Logt per kwartier de geladen energie (kWh) en het bijbehorende tarief (EUR/kWh).
 - Gebruikt optioneel de sessie-energiemeter van de laadpaal om het totaal per sessie te corrigeren.
 - Maakt per maand een PDF- en CSV-rapport in `www/laadrapporten` (bereikbaar via `/local/laadrapporten`).
+- Ingebouwd dashboard **Laadsessies** in de zijbalk met maandtotalen, rapportenoverzicht en PDF-viewer (uit te zetten in de opties).
 - Ingebouwde PDF-viewer.
 - Tekstvelden voor naam, adres en kenteken die op het rapport worden afgedrukt.
 - Service `laadsessie_log.genereer_rapport` om een rapport (opnieuw) te genereren.
@@ -35,6 +36,7 @@ Kopieer `custom_components/laadsessie_log` naar `<config>/custom_components/` en
 | Kwartiertarief | Sensor met het actuele stroomtarief in EUR/kWh. |
 | Naam tariefbron | Naam van de leverancier in rapporten en meldingen. |
 | Statussen 'niet aangesloten' | Komma-gescheiden statuswaarden waarbij de auto niet is aangesloten. |
+| Dashboard 'Laadsessies' in de zijbalk | Toont het ingebouwde dashboard (`/laadsessie-log`). Het wordt automatisch opgebouwd uit de gekozen sensoren en is alleen-lezen; wil je het aanpassen, zet dit dan uit en maak een eigen dashboard. |
 
 ## Service
 

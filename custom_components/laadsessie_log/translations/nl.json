@@ -10,7 +10,8 @@
           "sessie_energie": "Sessie-energie (optioneel)",
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
-          "status_niet_aangesloten": "Statussen 'niet aangesloten'"
+          "status_niet_aangesloten": "Statussen 'niet aangesloten'",
+          "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
         },
         "data_description": {
           "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
@@ -18,7 +19,8 @@
           "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
-          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten."
+          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
+          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
         }
       }
     },
@@ -37,7 +39,8 @@
           "sessie_energie": "Sessie-energie (optioneel)",
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
-          "status_niet_aangesloten": "Statussen 'niet aangesloten'"
+          "status_niet_aangesloten": "Statussen 'niet aangesloten'",
+          "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
         },
         "data_description": {
           "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
@@ -45,7 +48,8 @@
           "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
-          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten."
+          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
+          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
         }
       }
     }

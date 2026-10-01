@@ -26,7 +26,9 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
+from . import dashboard
 from .const import (
+    CONF_DASHBOARD,
     CONF_DISCONNECTED,
     CONF_INFO,
     CONF_POWER,
@@ -37,6 +39,7 @@ from .const import (
     DEFAULT_DISCONNECTED,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
+    REPORT_URL,
     SIGNAL_UPDATE,
 )
 from .pdf import MONTHS, build_report, num
@@ -46,7 +49,6 @@ _LOGGER = logging.getLogger(__name__)
 
 NOTIFICATION_ID = f"{DOMAIN}_zonneplan"
 REPORT_DIR = "www/laadrapporten"
-REPORT_URL = "/local/laadrapporten"
 FIRST_RUN_DAYS = 10
 RETENTION_MONTHS = 15  # naast de lopende maand
 PLATFORMS = [Platform.SENSOR, Platform.TEXT]
@@ -570,6 +572,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(async_at_started(hass, _started))
     entry.async_on_unload(entry.add_update_listener(_async_reload))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    if log.conf.get(CONF_DASHBOARD, True) and dashboard.async_register(hass, log.conf):
+        entry.async_on_unload(lambda: dashboard.async_unregister(hass))
     return True
 
 

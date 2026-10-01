@@ -6,9 +6,11 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "recorder",
+    "frontend",
+    "http",
+    "lovelace",
     "persistent_notification",
-    "http"
+    "recorder"
   ],
   "documentation": "https://github.com/HA-TB303/laadsessie_log",
   "integration_type": "service",
@@ -16,5 +18,5 @@
   "issue_tracker": "https://github.com/HA-TB303/laadsessie_log/issues",
   "requirements": [],
   "single_config_entry": true,
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

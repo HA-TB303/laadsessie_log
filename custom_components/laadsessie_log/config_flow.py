@@ -10,6 +10,7 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_DASHBOARD,
     CONF_DISCONNECTED,
     CONF_POWER,
     CONF_SESSION_ENERGY,
@@ -46,6 +47,7 @@ def _schema(values: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_DISCONNECTED, default=values.get(CONF_DISCONNECTED, DEFAULT_DISCONNECTED)
             ): selector.TextSelector(),
+            vol.Required(CONF_DASHBOARD, default=values.get(CONF_DASHBOARD, True)): selector.BooleanSelector(),
         }
     )
 
