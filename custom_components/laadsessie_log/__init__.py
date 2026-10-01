@@ -34,13 +34,16 @@ from .const import (
     CONF_POWER,
     CONF_SESSION_ENERGY,
     CONF_STATUS,
+    CONF_TARIEF_INTERVAL,
     CONF_TARIFF,
     CONF_TARIFF_NAME,
     DEFAULT_DISCONNECTED,
+    DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
     REPORT_URL,
     SIGNAL_UPDATE,
+    TARIEF_INTERVAL_UREN,
 )
 from .pdf import MONTHS, build_report, num
 from .tracker import SOURCE_LIVE, SessionTracker
@@ -122,6 +125,8 @@ class LaadLog:
         self.conf = conf = {**entry.data, **entry.options}
         self.tariff_name = conf.get(CONF_TARIFF_NAME) or DEFAULT_TARIFF_NAME
         self.disconnected = parse_states(conf.get(CONF_DISCONNECTED) or DEFAULT_DISCONNECTED)
+        interval = conf.get(CONF_TARIEF_INTERVAL) or DEFAULT_TARIEF_INTERVAL
+        self.tariff_stale = timedelta(hours=TARIEF_INTERVAL_UREN.get(interval, TARIEF_INTERVAL_UREN[DEFAULT_TARIEF_INTERVAL]))
         self._unsubs: list = []
         self._units: dict[str, str] = {}
         self.tz = dt_util.get_default_time_zone()
@@ -132,7 +137,7 @@ class LaadLog:
         self.details_path = os.path.join(self.data_dir, "gegevens.json")
         self.details: dict[str, str] = {}
         self._regen_unsub = None
-        self.tracker = SessionTracker(self.tz, self.disconnected)
+        self.tracker = SessionTracker(self.tz, self.disconnected, self.tariff_stale)
         self.sessions: list[dict] = []
         self.reports: list[dict] = []
         self.ready = False
@@ -151,7 +156,7 @@ class LaadLog:
         state = await self.hass.async_add_executor_job(_read_json, self.state_path, None)
         self.sessions = await self.hass.async_add_executor_job(_read_json, self.sessions_path, [])
         if state:
-            self.tracker = SessionTracker.from_dict(state, self.tz, self.disconnected)
+            self.tracker = SessionTracker.from_dict(state, self.tz, self.disconnected, self.tariff_stale)
         self.reports = await self.hass.async_add_executor_job(self._scan_reports)
         await self.hass.async_add_executor_job(
             _install_viewer,
