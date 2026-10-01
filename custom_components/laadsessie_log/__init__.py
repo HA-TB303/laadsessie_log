@@ -43,6 +43,7 @@ from .const import (
     DOMAIN,
     REPORT_URL,
     SIGNAL_UPDATE,
+    TARIEF_INTERVAL_LABEL,
     TARIEF_INTERVAL_UREN,
 )
 from .pdf import MONTHS, build_report, num
@@ -125,8 +126,13 @@ class LaadLog:
         self.conf = conf = {**entry.data, **entry.options}
         self.tariff_name = conf.get(CONF_TARIFF_NAME) or DEFAULT_TARIFF_NAME
         self.disconnected = parse_states(conf.get(CONF_DISCONNECTED) or DEFAULT_DISCONNECTED)
-        interval = conf.get(CONF_TARIEF_INTERVAL) or DEFAULT_TARIEF_INTERVAL
-        self.tariff_stale = timedelta(hours=TARIEF_INTERVAL_UREN.get(interval, TARIEF_INTERVAL_UREN[DEFAULT_TARIEF_INTERVAL]))
+        self.tarief_interval = conf.get(CONF_TARIEF_INTERVAL) or DEFAULT_TARIEF_INTERVAL
+        self.tariff_stale = timedelta(
+            hours=TARIEF_INTERVAL_UREN.get(self.tarief_interval, TARIEF_INTERVAL_UREN[DEFAULT_TARIEF_INTERVAL])
+        )
+        self.tarief_label = TARIEF_INTERVAL_LABEL.get(
+            self.tarief_interval, TARIEF_INTERVAL_LABEL[DEFAULT_TARIEF_INTERVAL]
+        )
         self._unsubs: list = []
         self._units: dict[str, str] = {}
         self.tz = dt_util.get_default_time_zone()
@@ -394,14 +400,16 @@ class LaadLog:
             info["Laadpaal"] = f"{name} ({cid})" if cid else name
             info["Locatie"] = info.get("Adres") or st.attributes.get("site_name")
             info.pop("Adres", None)
-        info["Tariefbron"] = f"{self.tariff_name} (dynamisch kwartiertarief)"
+        info["Tariefbron"] = f"{self.tariff_name} ({self.tarief_label})"
         return info
 
     async def async_generate(self, year: int, month: int) -> dict:
         now = dt_util.now()
         provisional = (now.year, now.month) <= (year, month)
         sessions = self.month_sessions(year, month)
-        data = build_report(sessions, year, month, self.tz, self._info(), provisional, self.tariff_name)
+        data = build_report(
+            sessions, year, month, self.tz, self._info(), provisional, self.tariff_name, self.tarief_label
+        )
         base = os.path.join(self.report_dir, f"laadrapport_{year}-{month:02d}")
         copies = []
         if (year, month) == _prev_month(now.year, now.month):

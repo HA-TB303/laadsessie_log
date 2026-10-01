@@ -176,6 +176,7 @@ def build_report(
     info: dict,
     provisional: bool,
     tariff_name: str = "Zonneplan",
+    tariff_label: str = "dynamisch kwartiertarief",
 ) -> bytes:
     pdf = PDF()
     period = f"{MONTHS[month - 1]} {year}"
@@ -297,11 +298,11 @@ def build_report(
     # Toelichting
     notes = [
         "Energie is gemeten door de laadpaal; de verdeling over kwartieren volgt het gemeten laadvermogen.",
-        f"Tarief: dynamisch kwartiertarief van {tariff_name} (all-in, incl. energiebelasting en btw).",
+        f"Tarief: {tariff_label} van {tariff_name} (all-in, incl. energiebelasting en btw).",
     ]
     if any_fb:
-        notes.append(f"T = terugvaltarief: {tariff_name}-tarief was niet beschikbaar; tarief van de meest recente dag met")
-        notes.append("      een bekend tarief op hetzelfde kwartier gebruikt (zie specificatie).")
+        notes.append(f"T = terugvaltarief: {tariff_name}-tarief was niet beschikbaar; laatst bekende tarief op hetzelfde")
+        notes.append("      kwartier van de meest recente periode met een bekend tarief gebruikt (zie specificatie).")
     if any_unknown:
         notes.append("? = voor een of meer kwartieren was geen tarief bekend; deze zijn met € 0 meegeteld.")
     if any_partial:
