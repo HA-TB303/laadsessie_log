@@ -28,3 +28,15 @@ TARIEF_INTERVAL_UREN = {
     "dag": 30,
     "maand": 32 * 24,
 }
+
+# Omschrijving van het tariefsoort, gebruikt in rapporten en op het dashboard.
+TARIEF_INTERVAL_LABEL = {
+    "kwartier": "dynamisch kwartiertarief",
+    "dag": "dagtarief",
+    "maand": "vast maandtarief",
+}
+TARIEF_INTERVAL_TEGEL = {
+    "kwartier": "Huidig kwartiertarief",
+    "dag": "Huidig dagtarief",
+    "maand": "Huidig tarief",
+}

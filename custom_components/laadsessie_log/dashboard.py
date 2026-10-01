@@ -13,12 +13,15 @@ from homeassistant.helpers.json import json_bytes, json_fragment
 
 from .const import (
     CONF_STATUS,
+    CONF_TARIEF_INTERVAL,
     CONF_TARIFF,
     CONF_TARIFF_NAME,
     DASHBOARD_URL,
+    DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
     REPORT_URL,
+    TARIEF_INTERVAL_TEGEL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,7 +67,9 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         tiles.append({"type": "tile", "entity": conf[CONF_STATUS], "name": "Laadpaal"})
     tiles.append({"type": "tile", "entity": e["tarief_status"], "name": f"{tariff_name} tarief"})
     if conf.get(CONF_TARIFF):
-        tiles.append({"type": "tile", "entity": conf[CONF_TARIFF], "name": "Huidig kwartiertarief"})
+        interval = conf.get(CONF_TARIEF_INTERVAL) or DEFAULT_TARIEF_INTERVAL
+        tegel_naam = TARIEF_INTERVAL_TEGEL.get(interval, TARIEF_INTERVAL_TEGEL[DEFAULT_TARIEF_INTERVAL])
+        tiles.append({"type": "tile", "entity": conf[CONF_TARIFF], "name": tegel_naam})
 
     table = (
         f"{{% set r = state_attr('{reports}','rapporten') or [] %}}\n"
