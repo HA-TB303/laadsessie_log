@@ -1,0 +1,34 @@
+# Toevoegen aan configuration.yaml (of samenvoegen met bestaande rest_command:/rest:/template:-blokken).
+# Vervang het IP-adres door dat van je eigen WARP-lader.
+
+rest_command:
+  warp3pro_inject_tag_start:
+    url: "http://<lader-ip>/nfc/inject_tag_start"
+    method: PUT
+    content_type: "application/json"
+    payload: '{"tag_type": {{ tag_type }}, "tag_id": "{{ tag_id }}"}'
+
+rest:
+  - resource: "http://<lader-ip>/charge_tracker/current_charge"
+    scan_interval: 15
+    sensor:
+      - name: "Warp3pro Actieve Gebruiker ID"
+        unique_id: warp3pro_actieve_gebruiker_id
+        value_template: "{{ value_json.user_id }}"
+
+template:
+  - sensor:
+      - name: "Warp3pro Actieve Gebruiker"
+        unique_id: warp3pro_active_user_name
+        icon: mdi:account-arrow-right
+        state: >
+          {% set uid = states('sensor.warp3pro_actieve_gebruiker_id') %}
+          {% if uid == '1' %}
+            Tesla
+          {% elif uid == '2' %}
+            Kia E-Niro
+          {% elif uid == '0' %}
+            Geen (anoniem)
+          {% else %}
+            Onbekend
+          {% endif %}

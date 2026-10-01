@@ -45,19 +45,20 @@ gh repo clone HA-TB303/laadsessie_log
 
 | Bestand | Inhoud |
 |---------|--------|
-| `__init__.py` | `LaadLog`: setup, luistert naar state changes, speelt bij start de recorder-historie na (eerste keer 10 dagen), schrijft sessies, maakt rapporten, service `genereer_rapport`, retentie 15 maanden. |
-| `tracker.py` | `SessionTracker`: pure logica (geen HA-afhankelijkheid) die vermogen/status/sessie-energie/tarief per kwartier integreert tot sessies; serialiseerbaar via `to_dict`/`from_dict`. |
+| `__init__.py` | `LaadLog`: setup, luistert naar state changes, speelt bij start de recorder-historie na (eerste keer 10 dagen), schrijft sessies, maakt rapporten (optioneel los per voertuig, zie `CONF_VOERTUIG`/`async_generate_voertuigen`), migreert eenmalig het oude `gegevens.json`-tekstveldenbestand naar de instellingen (`_migreer_rapportgegevens`), service `genereer_rapport`, retentie 15 maanden. |
+| `tracker.py` | `SessionTracker`: pure logica (geen HA-afhankelijkheid) die vermogen/status/sessie-energie/tarief/voertuig per kwartier integreert tot sessies; serialiseerbaar via `to_dict`/`from_dict`. |
 | `pdf.py` | `build_report`: genereert de PDF zonder externe libraries (`requirements` is leeg – zo houden). |
-| `sensor.py` | Sensoren: energie/kosten deze maand, actieve sessie, rapporten, tariefstatus. |
-| `text.py` | Tekstentiteiten naam/adres/kenteken voor op het rapport; wijziging maakt na 10 s alle rapporten opnieuw. |
-| `dashboard.py` | Ingebouwd alleen-lezen Lovelace-dashboard `/laadsessie-log` (zijbalk "Laadsessies"), bij elke load opgebouwd uit de opties + entity registry (op `unique_id`). Gebruikt interne lovelace-API (`LOVELACE_DATA`, `LovelaceConfig`) – na HA-updates controleren. |
-| `config_flow.py` | Config- en options-flow (één instantie, `single_config_entry`). |
-| `viewer/` | PDF.js-viewer, wordt bij start gekopieerd naar `www/laadrapporten/viewer`. |
+| `sensor.py` | Sensoren: energie/kosten deze maand (incl. `per_voertuig`-attribuut), actieve sessie, rapporten, tariefstatus. |
+| `dashboard.py` | Ingebouwd alleen-lezen Lovelace-dashboard `/laadsessie-log` (zijbalk "Laadsessies"), bij elke load opgebouwd uit de opties + entity registry (op `unique_id`); toont een Voertuig-kolom zodra `CONF_VOERTUIG` is ingesteld. Gebruikt interne lovelace-API (`LOVELACE_DATA`, `LovelaceConfig`) – na HA-updates controleren. |
+| `config_flow.py` | Config- en options-flow (één instantie, `single_config_entry`); incl. naam/adres/kenteken en de optionele voertuig-sensor. |
+| `rapport_view.py` | `RapportView`: geauthenticeerd endpoint `/api/laadsessie_log/rapport/{naam}` (alleen `laadrapport_*.pdf/csv`) en `Ondertekenaar`: tijdelijk ondertekende links (`async_sign_path`, 2 uur geldig, gecachet) voor sensor-attributen en dashboard. Geen extra queryparameters aan ondertekende links toevoegen: dan klopt de handtekening niet meer. |
+| `viewer/` | PDF.js-viewer, wordt bij start gekopieerd naar `www/laadrapporten/viewer` (openbaar, bevat geen gegevens; accepteert alleen links naar het rapport-endpoint). |
 | `translations/` | `nl.json` en `en.json` (beide Nederlandstalig); houd ze gelijk en voeg nieuwe velden/services in beide toe. |
 
 Gegevens op de HA-instantie (niet in de repo):
-- `/homeassistant/laadsessies/state.json`, `sessies.json`, `gegevens.json`
-- Rapporten: `/homeassistant/www/laadrapporten` → `/local/laadrapporten`
+- `/homeassistant/laadsessies/state.json`, `sessies.json`
+- `/homeassistant/laadsessies/gegevens.json` (legacy; alleen nog gelezen voor de eenmalige migratie van naam/adres/kenteken naar de instellingen)
+- Rapporten: `/homeassistant/laadsessies/rapporten` → `/api/laadsessie_log/rapport/...` (alleen ingelogd; tot en met 1.3.x stonden ze openbaar in `www/laadrapporten` en worden ze bij de start daarheen verplaatst)
 
 ## Conventies
 

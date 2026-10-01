@@ -8,21 +8,29 @@
           "vermogen": "Laadvermogen",
           "status": "Laadpaalstatus",
           "sessie_energie": "Sessie-energie (optioneel)",
+          "voertuig": "Voertuig (optioneel)",
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
           "status_niet_aangesloten": "Statussen 'niet aangesloten'",
           "tarief_interval": "Hoe vaak wijzigt het tarief?",
-          "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
+          "dashboard": "Dashboard 'Laadsessies' in de zijbalk",
+          "naam": "Naam (optioneel)",
+          "adres": "Adres laadpaal (optioneel)",
+          "kenteken": "Kenteken (optioneel)"
         },
         "data_description": {
           "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
           "status": "Sensor of binaire sensor die aangeeft of de auto is aangesloten.",
           "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
+          "voertuig": "Sensor waarvan de tekstwaarde aangeeft welk voertuig is aangesloten (bijv. een template-sensor die dit herkent via NFC/kenteken). Zonder deze sensor worden sessies niet per voertuig onderverdeeld.",
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
           "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
           "tarief_interval": "Bepaalt hoe lang een tariefwaarde als geldig wordt beschouwd. Kies 'Per kwartier/uur' voor een dynamisch tarief (bijv. Zonneplan); kies 'Per maand' voor een vast tarief dat zelf maar af en toe wijzigt (bijv. Luminus MaxxFlex) om onterechte storingsmeldingen te voorkomen.",
-          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
+          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk.",
+          "naam": "Naam zoals die op het laadrapport wordt getoond.",
+          "adres": "Adres van de laadpaal zoals op het laadrapport getoond.",
+          "kenteken": "Kenteken zoals op het laadrapport getoond. Wordt genegeerd zodra 'Voertuig' is ingesteld; het rapport toont dan per voertuignaam in plaats van kenteken."
         }
       }
     },
@@ -39,21 +47,29 @@
           "vermogen": "Laadvermogen",
           "status": "Laadpaalstatus",
           "sessie_energie": "Sessie-energie (optioneel)",
+          "voertuig": "Voertuig (optioneel)",
           "tarief": "Kwartiertarief",
           "tarief_naam": "Naam tariefbron",
           "status_niet_aangesloten": "Statussen 'niet aangesloten'",
           "tarief_interval": "Hoe vaak wijzigt het tarief?",
-          "dashboard": "Dashboard 'Laadsessies' in de zijbalk"
+          "dashboard": "Dashboard 'Laadsessies' in de zijbalk",
+          "naam": "Naam (optioneel)",
+          "adres": "Adres laadpaal (optioneel)",
+          "kenteken": "Kenteken (optioneel)"
         },
         "data_description": {
           "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
           "status": "Sensor of binaire sensor die aangeeft of de auto is aangesloten.",
           "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
+          "voertuig": "Sensor waarvan de tekstwaarde aangeeft welk voertuig is aangesloten (bijv. een template-sensor die dit herkent via NFC/kenteken). Zonder deze sensor worden sessies niet per voertuig onderverdeeld.",
           "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
           "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
           "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten.",
           "tarief_interval": "Bepaalt hoe lang een tariefwaarde als geldig wordt beschouwd. Kies 'Per kwartier/uur' voor een dynamisch tarief (bijv. Zonneplan); kies 'Per maand' voor een vast tarief dat zelf maar af en toe wijzigt (bijv. Luminus MaxxFlex) om onterechte storingsmeldingen te voorkomen.",
-          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk."
+          "dashboard": "Toon het ingebouwde dashboard met de maandtotalen, rapporten en PDF-viewer in de zijbalk.",
+          "naam": "Naam zoals die op het laadrapport wordt getoond.",
+          "adres": "Adres van de laadpaal zoals op het laadrapport getoond.",
+          "kenteken": "Kenteken zoals op het laadrapport getoond. Wordt genegeerd zodra 'Voertuig' is ingesteld; het rapport toont dan per voertuignaam in plaats van kenteken."
         }
       }
     }

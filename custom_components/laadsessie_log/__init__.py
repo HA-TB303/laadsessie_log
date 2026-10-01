@@ -4,6 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import shutil
+from calendar import monthrange
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -17,11 +20,7 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, State, Support
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import (
-    async_call_later,
-    async_track_state_change_event,
-    async_track_time_change,
-)
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
@@ -37,25 +36,30 @@ from .const import (
     CONF_TARIEF_INTERVAL,
     CONF_TARIFF,
     CONF_TARIFF_NAME,
+    CONF_VOERTUIG,
     DEFAULT_DISCONNECTED,
     DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
+    ONBEKEND_VOERTUIG,
     REPORT_URL,
     SIGNAL_UPDATE,
     TARIEF_INTERVAL_LABEL,
     TARIEF_INTERVAL_UREN,
 )
 from .pdf import MONTHS, build_report, num
+from .rapport_view import Ondertekenaar, RapportView
 from .tracker import SOURCE_LIVE, SessionTracker
 
 _LOGGER = logging.getLogger(__name__)
 
 NOTIFICATION_ID = f"{DOMAIN}_zonneplan"
-REPORT_DIR = "www/laadrapporten"
+REPORT_DIR = "laadsessies/rapporten"
+OUDE_REPORT_DIR = "www/laadrapporten"  # tot en met 1.4.0: openbaar via /local
+VIEWER_DIR = "www/laadrapporten/viewer"
 FIRST_RUN_DAYS = 10
 RETENTION_MONTHS = 15  # naast de lopende maand
-PLATFORMS = [Platform.SENSOR, Platform.TEXT]
+PLATFORMS = [Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -115,8 +119,58 @@ def _install_viewer(src_dir: str, dest_dir: str) -> None:
         _write_bytes(dest, data, [])
 
 
+def _verplaats_oude_rapporten(oud: str, nieuw: str) -> int:
+    """Rapporten uit de openbare www-map naar de afgeschermde rapportmap verplaatsen."""
+    if not os.path.isdir(oud):
+        return 0
+    os.makedirs(nieuw, exist_ok=True)
+    aantal = 0
+    for name in os.listdir(oud):
+        src = os.path.join(oud, name)
+        if not os.path.isfile(src) or not name.endswith((".pdf", ".csv", ".html")):
+            continue
+        dest = os.path.join(nieuw, name)
+        if os.path.exists(dest):
+            os.remove(src)
+        else:
+            shutil.move(src, dest)
+        aantal += 1
+    return aantal
+
+
 def _prev_month(year: int, month: int) -> tuple[int, int]:
     return (year - 1, 12) if month == 1 else (year, month - 1)
+
+
+def _slug(naam: str) -> str:
+    """Bestandsnaamveilige, kleine-letters-versie van een voertuignaam."""
+    s = re.sub(r"[^a-z0-9]+", "-", naam.strip().lower()).strip("-")
+    return s or "onbekend"
+
+
+# Matcht "laadrapport_2024-05.pdf" en, bij CONF_VOERTUIG, "laadrapport_2024-05_<slug>.pdf".
+# "laadrapport_vorige_maand(_<slug>).pdf" matcht hier bewust niet (geen \d{4}-\d{2}).
+_REPORT_RE = re.compile(r"^laadrapport_(\d{4})-(\d{2})(?:_(.+))?\.(pdf|csv)$")
+
+
+async def _migreer_rapportgegevens(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Eenmalig: naam/adres/kenteken van de oude tekstvelden naar de integratie-instellingen migreren."""
+    path = os.path.join(hass.config.path("laadsessies"), "gegevens.json")
+    oud = await hass.async_add_executor_job(_read_json, path, None)
+    if not oud:
+        return
+    aanvulling = {
+        k: v for k, v in oud.items() if k in CONF_INFO and v and not (entry.data.get(k) or entry.options.get(k))
+    }
+    if aanvulling:
+        hass.config_entries.async_update_entry(entry, options={**entry.options, **aanvulling})
+        _LOGGER.info(
+            "Laadsessie log: %s gemigreerd van tekstvelden naar integratie-instellingen",
+            ", ".join(aanvulling),
+        )
+    # Bestand aan de kant zetten zodat dit echt maar één keer gebeurt; anders vult een
+    # latere herstart een veld dat de gebruiker daarna weer heeft leeggemaakt opnieuw aan.
+    await hass.async_add_executor_job(os.replace, path, path + ".gemigreerd")
 
 
 class LaadLog:
@@ -138,11 +192,9 @@ class LaadLog:
         self.tz = dt_util.get_default_time_zone()
         self.data_dir = hass.config.path("laadsessies")
         self.report_dir = hass.config.path(REPORT_DIR)
+        self.links = Ondertekenaar(hass)
         self.state_path = os.path.join(self.data_dir, "state.json")
         self.sessions_path = os.path.join(self.data_dir, "sessies.json")
-        self.details_path = os.path.join(self.data_dir, "gegevens.json")
-        self.details: dict[str, str] = {}
-        self._regen_unsub = None
         self.tracker = SessionTracker(self.tz, self.disconnected, self.tariff_stale)
         self.sessions: list[dict] = []
         self.reports: list[dict] = []
@@ -153,6 +205,7 @@ class LaadLog:
             (CONF_STATUS, "status"),
             (CONF_SESSION_ENERGY, "energy"),
             (CONF_TARIFF, "tariff"),
+            (CONF_VOERTUIG, "voertuig"),
         ):
             if conf.get(key):
                 self.entities[conf[key]] = kind
@@ -163,33 +216,27 @@ class LaadLog:
         self.sessions = await self.hass.async_add_executor_job(_read_json, self.sessions_path, [])
         if state:
             self.tracker = SessionTracker.from_dict(state, self.tz, self.disconnected, self.tariff_stale)
+        verplaatst = await self.hass.async_add_executor_job(
+            _verplaats_oude_rapporten, self.hass.config.path(OUDE_REPORT_DIR), self.report_dir
+        )
+        if verplaatst:
+            _LOGGER.info("Laadsessie log: %d rapportbestanden uit www/ naar %s verplaatst", verplaatst, REPORT_DIR)
         self.reports = await self.hass.async_add_executor_job(self._scan_reports)
         await self.hass.async_add_executor_job(
             _install_viewer,
             os.path.join(os.path.dirname(__file__), "viewer"),
-            os.path.join(self.report_dir, "viewer"),
+            self.hass.config.path(VIEWER_DIR),
         )
-        details = await self.hass.async_add_executor_job(_read_json, self.details_path, None)
-        details = details or {}
-        self.details = {k: details.get(k, "") for k in CONF_INFO}
 
-    async def async_set_detail(self, key: str, value: str) -> None:
-        self.details[key] = value.strip()
-        await self.hass.async_add_executor_job(_write_json, self.details_path, self.details)
-        self._notify_update()
-        if self._regen_unsub:
-            self._regen_unsub()
-        self._regen_unsub = async_call_later(self.hass, 10, self.async_regenerate_all)
-
-    async def async_regenerate_all(self, _now=None) -> int:
+    async def async_regenerate_all(self) -> int:
         """Alle bestaande rapporten (plus vorige en huidige maand) opnieuw maken."""
-        self._regen_unsub = None
         now = dt_util.now()
         months = {(r["jaar"], r["maand_nr"]) for r in self.reports}
         months |= {_prev_month(now.year, now.month), (now.year, now.month)}
+        totaal = 0
         for ym in sorted(months):
-            await self.async_generate(*ym)
-        return len(months)
+            totaal += len(await self.async_generate_voertuigen(*ym))
+        return totaal
 
     async def async_start(self) -> None:
         now = dt_util.utcnow()
@@ -247,9 +294,6 @@ class LaadLog:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        if self._regen_unsub:
-            self._regen_unsub()
-            self._regen_unsub = None
         if self.ready:
             await self._save_state()
 
@@ -275,6 +319,8 @@ class LaadLog:
             self.tracker.feed_status(ts, st.state)
         elif kind == "energy":
             self.tracker.feed_session_energy(ts, self._value(entity_id, st))
+        elif kind == "voertuig":
+            self.tracker.feed_voertuig(ts, st.state)
         else:
             self.tracker.feed_tariff(ts, _float(st))
 
@@ -286,7 +332,7 @@ class LaadLog:
         self._feed(event.data["entity_id"], st, st.last_updated)
         if self.tracker.outputs:
             self.hass.async_create_task(self._handle_outputs())
-        if self.entities[event.data["entity_id"]] in ("status", "tariff"):
+        if self.entities[event.data["entity_id"]] in ("status", "tariff", "voertuig"):
             self._notify_update()
 
     async def _on_tick(self, now: datetime) -> None:
@@ -300,7 +346,7 @@ class LaadLog:
         if now.day != 1:
             return
         year, month = _prev_month(now.year, now.month)
-        await self.async_generate(year, month)
+        await self.async_generate_voertuigen(year, month)
         await self.async_purge()
 
     async def _on_stop(self, _event: Event) -> None:
@@ -327,7 +373,7 @@ class LaadLog:
         await self.hass.async_add_executor_job(_write_json, self.sessions_path, self.sessions)
         await self._save_state()
         for year, month in sorted(months):
-            await self.async_generate(year, month)
+            await self.async_generate_voertuigen(year, month)
         self._notify_update()
         return True
 
@@ -381,55 +427,103 @@ class LaadLog:
         async_dispatcher_send(self.hass, SIGNAL_UPDATE)
 
     # ------------------------------------------------------------- rapporten
-    def month_sessions(self, year: int, month: int) -> list[dict]:
+    def month_sessions(self, year: int, month: int, voertuig: str | None = None) -> list[dict]:
         out = []
         for s in self.sessions:
             end = self._local(s["einde"])
             if end.year == year and end.month == month:
-                out.append(s)
+                if voertuig is None or (s.get("voertuig") or ONBEKEND_VOERTUIG) == voertuig:
+                    out.append(s)
         return out
 
-    def _info(self) -> dict:
+    def per_voertuig(self, sessions: list[dict]) -> dict[str, dict]:
+        """Totalen per voertuig, voor op de sensor (alleen zinvol als CONF_VOERTUIG is ingesteld)."""
+        out: dict[str, dict] = {}
+        for s in sessions:
+            naam = s.get("voertuig") or ONBEKEND_VOERTUIG
+            totaal = out.setdefault(naam, {"sessies": 0, "kwh": 0.0, "kosten": 0.0})
+            totaal["sessies"] += 1
+            totaal["kwh"] += s["kwh"]
+            totaal["kosten"] += s["kosten"]
+        return out
+
+    def _voertuigen_in(self, sessions: list[dict]) -> set[str]:
+        return {s.get("voertuig") or ONBEKEND_VOERTUIG for s in sessions}
+
+    def per_dag(self, sessions: list[dict]) -> list[dict]:
+        """kWh per dag van de maand, voor de grafiek op het dashboard."""
+        ref = self._local(sessions[0]["start"]) if sessions else dt_util.now()
+        laatste_dag = monthrange(ref.year, ref.month)[1]
+        totalen = {dag: 0.0 for dag in range(1, laatste_dag + 1)}
+        for s in sessions:
+            for q in s["kwartieren"]:
+                dag = self._local(q["start"]).day
+                if dag in totalen:
+                    totalen[dag] += q["kwh"]
+        return [{"dag": dag, "kwh": round(kwh, 2)} for dag, kwh in totalen.items()]
+
+    def _info(self, voertuig: str | None = None) -> dict:
         st = self.hass.states.get(self.conf.get(CONF_STATUS, ""))
         info = {}
         for key in CONF_INFO:
-            info[key.capitalize()] = self.details.get(key)
+            info[key.capitalize()] = self.conf.get(key)
         if st:
             name = st.attributes.get("friendly_name", "Laadpaal").removesuffix(" Status")
             cid = st.attributes.get("id")
             info["Laadpaal"] = f"{name} ({cid})" if cid else name
             info["Locatie"] = info.get("Adres") or st.attributes.get("site_name")
             info.pop("Adres", None)
+        if voertuig is not None:
+            # Eén kenteken slaat nergens meer op zodra er per voertuig wordt gerapporteerd.
+            info.pop("Kenteken", None)
+            info["Voertuig"] = voertuig
         info["Tariefbron"] = f"{self.tariff_name} ({self.tarief_label})"
         return info
 
-    async def async_generate(self, year: int, month: int) -> dict:
+    async def async_generate(self, year: int, month: int, voertuig: str | None = None) -> dict:
+        """Genereert één rapport. Bij CONF_VOERTUIG hoort hier een specifiek voertuig bij."""
         now = dt_util.now()
         provisional = (now.year, now.month) <= (year, month)
-        sessions = self.month_sessions(year, month)
+        sessions = self.month_sessions(year, month, voertuig)
         data = build_report(
             sessions,
             year,
             month,
             self.tz,
-            self._info(),
+            self._info(voertuig),
             provisional,
             self.tariff_name,
             self.tarief_label,
             self.tarief_interval == "maand",
         )
-        base = os.path.join(self.report_dir, f"laadrapport_{year}-{month:02d}")
+        suffix = f"_{_slug(voertuig)}" if voertuig is not None else ""
+        naam = f"laadrapport_{year}-{month:02d}{suffix}"
+        base = os.path.join(self.report_dir, naam)
         copies = []
         if (year, month) == _prev_month(now.year, now.month):
-            copies.append(os.path.join(self.report_dir, "laadrapport_vorige_maand.pdf"))
+            copies.append(os.path.join(self.report_dir, f"laadrapport_vorige_maand{suffix}.pdf"))
         await self.hass.async_add_executor_job(_write_bytes, base + ".pdf", data, copies)
         await self.hass.async_add_executor_job(
             _write_bytes, base + ".csv", self._csv(sessions).encode("utf-8-sig"), []
         )
-        _LOGGER.info("Laadrapport %d-%02d gegenereerd (%d sessies)", year, month, len(sessions))
+        _LOGGER.info(
+            "Laadrapport %d-%02d%s gegenereerd (%d sessies)",
+            year,
+            month,
+            f" [{voertuig}]" if voertuig is not None else "",
+            len(sessions),
+        )
         self.reports = await self.hass.async_add_executor_job(self._scan_reports)
         self._notify_update()
-        return {"pdf": f"{REPORT_URL}/laadrapport_{year}-{month:02d}.pdf"}
+        return {"pdf": f"{REPORT_URL}/{naam}.pdf"}
+
+    async def async_generate_voertuigen(self, year: int, month: int) -> list[dict]:
+        """Genereert het rapport voor een maand; bij CONF_VOERTUIG één rapport per voertuig."""
+        if self.conf.get(CONF_VOERTUIG):
+            # Alleen voertuigen die die maand echt geladen hebben; lege rapporten zeggen niets.
+            voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)))
+            return [await self.async_generate(year, month, v) for v in voertuigen]
+        return [await self.async_generate(year, month)]
 
     async def _ensure_reports(self) -> None:
         now = dt_util.now()
@@ -437,18 +531,37 @@ class LaadLog:
         for s in self.sessions:
             end = self._local(s["einde"])
             months.add((end.year, end.month))
-        existing = {(r["jaar"], r["maand_nr"]) for r in self.reports}
+        for year, month in sorted(months):
+            if self.conf.get(CONF_VOERTUIG):
+                voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)))
+            else:
+                voertuigen = [None]
+            for voertuig in voertuigen:
+                await self._ensure_report(year, month, voertuig)
+
+    async def _ensure_report(self, year: int, month: int, voertuig: str | None) -> None:
+        now = dt_util.now()
+        bestaand = next(
+            (
+                r
+                for r in self.reports
+                if (r["jaar"], r["maand_nr"], r.get("voertuig")) == (year, month, voertuig)
+            ),
+            None,
+        )
+        # Voorlopige rapporten van afgesloten maanden opnieuw maken als definitief.
+        stale = bool(bestaand) and bestaand["voorlopig"] and (year, month) < (now.year, now.month)
         prev = _prev_month(now.year, now.month)
-        prev_copy = os.path.join(self.report_dir, "laadrapport_vorige_maand.pdf")
+        suffix = f"_{_slug(voertuig)}" if voertuig is not None else ""
+        prev_copy = os.path.join(self.report_dir, f"laadrapport_vorige_maand{suffix}.pdf")
         prev_ok = await self.hass.async_add_executor_job(os.path.exists, prev_copy)
-        for ym in sorted(months):
-            # Voorlopige rapporten van afgesloten maanden opnieuw maken als definitief.
-            stale = any(r["voorlopig"] and (r["jaar"], r["maand_nr"]) == ym for r in self.reports) and ym < (
-                now.year,
-                now.month,
-            )
-            if ym not in existing or stale or ym == (now.year, now.month) or (ym == prev and not prev_ok):
-                await self.async_generate(*ym)
+        if (
+            bestaand is None
+            or stale
+            or (year, month) == (now.year, now.month)
+            or ((year, month) == prev and not prev_ok)
+        ):
+            await self.async_generate(year, month, voertuig)
 
     def _retention_cutoff(self) -> tuple[int, int]:
         now = dt_util.now()
@@ -483,22 +596,23 @@ class LaadLog:
         if not os.path.isdir(self.report_dir):
             return removed
         for name in os.listdir(self.report_dir):
-            if not name.startswith("laadrapport_") or not name.endswith((".pdf", ".csv")):
+            m = _REPORT_RE.match(name)
+            if not m:
                 continue
-            try:
-                year, month = (int(p) for p in name[12:-4].split("-"))
-            except ValueError:
-                continue
+            year, month = int(m.group(1)), int(m.group(2))
             if (year, month) < cutoff:
                 os.remove(os.path.join(self.report_dir, name))
                 removed.append(name)
         return removed
 
     def _csv(self, sessions: list[dict]) -> str:
-        lines = ["sessie_start;sessie_einde;kwartier;kwh;tarief_eur_per_kwh;kosten_eur;tariefbron;terugval_datum"]
+        lines = [
+            "sessie_start;sessie_einde;voertuig;kwartier;kwh;tarief_eur_per_kwh;kosten_eur;tariefbron;terugval_datum"
+        ]
         for s in sessions:
             st = self._local(s["start"]).strftime("%Y-%m-%d %H:%M")
             en = self._local(s["einde"]).strftime("%Y-%m-%d %H:%M")
+            voertuig = s.get("voertuig") or ""
             for q in s["kwartieren"]:
                 price = num(q["prijs"], 7).replace(".", "") if q["prijs"] is not None else ""
                 lines.append(
@@ -506,6 +620,7 @@ class LaadLog:
                         [
                             st,
                             en,
+                            voertuig,
                             self._local(q["start"]).strftime("%Y-%m-%d %H:%M"),
                             num(q["kwh"], 4).replace(".", ""),
                             price,
@@ -521,26 +636,42 @@ class LaadLog:
         out = []
         if not os.path.isdir(self.report_dir):
             return out
+        per_voertuig = bool(self.conf.get(CONF_VOERTUIG))
         for name in sorted(os.listdir(self.report_dir), reverse=True):
-            if not (name.startswith("laadrapport_") and name.endswith(".pdf")) or "vorige" in name:
+            if not name.endswith(".pdf"):
                 continue
-            try:
-                year, month = (int(p) for p in name[12:-4].split("-"))
-            except ValueError:
+            m = _REPORT_RE.match(name)
+            if not m:
+                continue
+            year, month, slug = int(m.group(1)), int(m.group(2)), m.group(3)
+            if per_voertuig != (slug is not None):
+                # Oude niet-opgesplitste rapporten (of, na uitschakelen, oude per-voertuig-
+                # rapporten) horen niet bij de huidige modus; negeren voorkomt dubbele rijen.
+                continue
+            voertuig = None
+            if slug is not None:
+                # Slugs zijn lossy; herleid de echte naam via de sessies van die maand.
+                kandidaten = self._voertuigen_in(self.month_sessions(year, month)) | {ONBEKEND_VOERTUIG}
+                voertuig = next((v for v in kandidaten if _slug(v) == slug), slug)
+            sessions = self.month_sessions(year, month, voertuig)
+            kwh = round(sum(s["kwh"] for s in sessions), 2)
+            kosten = round(sum(s["kosten"] for s in sessions), 2)
+            if not kwh and not kosten:
+                # Rapporten zonder geladen energie en kosten niet tonen.
                 continue
             mtime = datetime.fromtimestamp(os.path.getmtime(os.path.join(self.report_dir, name)), self.tz)
-            sessions = self.month_sessions(year, month)
             out.append(
                 {
                     "jaar": year,
                     "maand_nr": month,
                     "maand": f"{MONTHS[month - 1]} {year}",
-                    "pdf": f"{REPORT_URL}/{name}",
-                    "viewer": f"{REPORT_URL}/viewer/viewer.html?file={name}",
-                    "csv": f"{REPORT_URL}/{name[:-4]}.csv",
+                    "voertuig": voertuig,
+                    # Bestandsnamen; de sensor maakt er ondertekende links van (zie rapport_view.py).
+                    "pdf": name,
+                    "csv": f"{name[:-4]}.csv",
                     "sessies": len(sessions),
-                    "kwh": round(sum(s["kwh"] for s in sessions), 2),
-                    "kosten": round(sum(s["kosten"] for s in sessions), 2),
+                    "kwh": kwh,
+                    "kosten": kosten,
                     "voorlopig": mtime < datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=self.tz),
                 }
             )
@@ -563,8 +694,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         year, month = _prev_month(now.year, now.month)
         year = call.data.get("jaar", year)
         month = call.data.get("maand", month)
-        return await log.async_generate(year, month)
+        resultaten = await log.async_generate_voertuigen(year, month)
+        if len(resultaten) == 1:
+            return resultaten[0]
+        return {"rapporten": resultaten}
 
+    hass.http.register_view(RapportView())
     hass.services.async_register(
         DOMAIN,
         "genereer_rapport",
@@ -582,6 +717,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    await _migreer_rapportgegevens(hass, entry)
     log = LaadLog(hass, entry)
     await log.async_load()
     hass.data[DOMAIN] = log

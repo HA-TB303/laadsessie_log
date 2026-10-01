@@ -21,10 +21,15 @@
 <script src="pdf.min.js"></script>
 <script>
   const params = new URLSearchParams(location.search);
-  // Alleen een bestandsnaam uit de rapportmap; HA weigert URL's met "../".
-  const name = (params.get("file") || "laadrapport_vorige_maand.pdf").split("/").pop();
-  const url = new URL("../" + encodeURIComponent(name), location.href);
-  document.getElementById("open").href = url.href;
+  // Alleen een (ondertekende) link naar het afgeschermde rapport-endpoint op deze server;
+  // de viewer zelf is openbaar, de rapporten niet.
+  const PREFIX = "/api/laadsessie_log/rapport/";
+  let url = null;
+  try {
+    const u = new URL(params.get("file") || "", location.origin);
+    if (u.origin === location.origin && u.pathname.startsWith(PREFIX)) url = u;
+  } catch (e) {}
+  if (url) document.getElementById("open").href = url.href;
   pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
   const pagesEl = document.getElementById("pages");
   let doc = null, lastWidth = 0;
@@ -48,13 +53,14 @@
     pagesEl.replaceChildren(...canvases);
   }
 
-  const busted = new URL(url); busted.searchParams.set("t", Date.now());
-  pdfjsLib.getDocument(busted.href).promise.then(d => {
+  // Geen cache-buster: extra queryparameters maken de handtekening ongeldig; de server
+  // stuurt al Cache-Control: no-store mee.
+  (url ? pdfjsLib.getDocument(url.href).promise : Promise.reject()).then(d => {
     doc = d;
     document.getElementById("title").textContent = decodeURIComponent(url.pathname.split("/").pop());
     render();
   }).catch(() => {
-    document.getElementById("msg").textContent = "Rapport niet gevonden.";
+    document.getElementById("msg").textContent = "Rapport niet gevonden of link verlopen; open het opnieuw vanaf het dashboard.";
   });
   let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 250); });
 </script>

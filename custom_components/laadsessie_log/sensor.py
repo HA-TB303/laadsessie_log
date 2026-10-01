@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import CONF_TARIFF, DOMAIN, REPORT_URL, SIGNAL_UPDATE
+from .const import CONF_TARIFF, CONF_VOERTUIG, DOMAIN, SIGNAL_UPDATE
 
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
@@ -62,7 +62,12 @@ class MonthEnergy(_Base):
 
     @property
     def extra_state_attributes(self):
-        return {"sessies": len(self._this_month())}
+        sessions = self._this_month()
+        return {
+            "sessies": len(sessions),
+            "per_voertuig": self.log.per_voertuig(sessions),
+            "per_dag": self.log.per_dag(sessions),
+        }
 
 
 class MonthCost(_Base):
@@ -96,7 +101,8 @@ class ActiveSession(_Base):
     def extra_state_attributes(self):
         t = self.log.tracker
         if not t.session:
-            return {"actief": False}
+            # Altijd een voertuig-attribuut, zodat de dashboardtegel "Voertuig" niet leeg blijft.
+            return {"actief": False, "voertuig": "Geen"}
         rows = t.session["kwartieren"]
         cost = sum(r["kwh_vermogen"] * (r["prijs"] or 0) for r in rows)
         price = t._live_price(t.q_start) if t.q_start else None
@@ -108,6 +114,7 @@ class ActiveSession(_Base):
             "start": t.session["start"],
             "kosten_tot_nu": round(cost, 2),
             "kwartieren": len(rows),
+            "voertuig": t.voertuig,
         }
 
 
@@ -115,6 +122,8 @@ class Reports(_Base):
     _attr_name = "Laadrapporten"
     _attr_unique_id = f"{DOMAIN}_rapporten"
     _attr_icon = "mdi:file-pdf-box"
+    # Ondertekende links zijn tijdelijk geldig en horen niet in de recorder-database.
+    _unrecorded_attributes = frozenset({"rapporten", "vorige_maand_pdf"})
 
     @property
     def native_value(self):
@@ -123,7 +132,16 @@ class Reports(_Base):
 
     @property
     def extra_state_attributes(self):
-        return {"rapporten": self.log.reports, "vorige_maand_pdf": f"{REPORT_URL}/laadrapport_vorige_maand.pdf"}
+        links = self.log.links
+        rapporten = [
+            {**r, "pdf": links.link(r["pdf"]), "csv": links.link(r["csv"]), "viewer": links.viewer(r["pdf"])}
+            for r in self.log.reports
+        ]
+        attrs = {"rapporten": rapporten}
+        if not self.log.conf.get(CONF_VOERTUIG):
+            # Alleen zinvol zonder losse rapporten per voertuig; anders bestaat dit bestand niet.
+            attrs["vorige_maand_pdf"] = links.link("laadrapport_vorige_maand.pdf")
+        return attrs
 
 
 class TariffStatus(_Base):
