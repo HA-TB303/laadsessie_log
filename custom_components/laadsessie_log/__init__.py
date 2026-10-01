@@ -455,12 +455,23 @@ class LaadLog:
         ref = self._local(sessions[0]["start"]) if sessions else dt_util.now()
         laatste_dag = monthrange(ref.year, ref.month)[1]
         totalen = {dag: 0.0 for dag in range(1, laatste_dag + 1)}
+        # Zelfde toewijzing als in de rapporten: het voertuig van de sessie.
+        per_voertuig: dict[int, dict[str, float]] = {dag: {} for dag in totalen}
         for s in sessions:
+            naam = s.get("voertuig") or ONBEKEND_VOERTUIG
             for q in s["kwartieren"]:
                 dag = self._local(q["start"]).day
                 if dag in totalen:
                     totalen[dag] += q["kwh"]
-        return [{"dag": dag, "kwh": round(kwh, 2)} for dag, kwh in totalen.items()]
+                    per_voertuig[dag][naam] = per_voertuig[dag].get(naam, 0.0) + q["kwh"]
+        return [
+            {
+                "dag": dag,
+                "kwh": round(kwh, 2),
+                "voertuigen": {n: round(v, 2) for n, v in per_voertuig[dag].items()},
+            }
+            for dag, kwh in totalen.items()
+        ]
 
     def _info(self, voertuig: str | None = None) -> dict:
         st = self.hass.states.get(self.conf.get(CONF_STATUS, ""))

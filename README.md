@@ -59,9 +59,21 @@ Met het optionele veld **Voertuig** wordt elke laadsessie gekoppeld aan de waard
 
 ## Dashboard
 
-Het ingebouwde dashboard toont onder andere de tegels Geladen, Kosten, Laadpaal, Voertuig (het nu aangesloten voertuig, als **Voertuig** is ingesteld), Actieve sessie en het tarief, plus een overzicht van alle rapporten.
+Het ingebouwde dashboard toont bovenaan de tegels **Geladen** en **Kosten** van deze maand, **Laadpaal**, **Aangesloten voertuig** en het huidige tarief, elk met een eigen icoon en kleur. Een aantal tegels verschijnt alleen als ze iets zeggen:
 
-De grafiek **Laadsessies deze maand** is een staafgrafiek met de dagen van de maand op de x-as en de geladen kWh op de y-as. Daarvoor is de kaart [ApexCharts Card](https://github.com/RomRider/apexcharts-card) nodig (via HACS → Frontend). Is die niet geïnstalleerd, dan toont het dashboard in plaats daarvan een eenvoudige tekstgrafiek met het totaal en de piekdag.
+- **Actieve sessie** en **Kosten sessie** (nieuwe sensor *Laadsessie kosten*) alleen zolang er geladen wordt.
+- Een rode waarschuwingstegel **\<tariefbron\> tarief: storing** alleen als de tariefsensor geen tarief levert.
+- Met **Voertuig** ingesteld krijgt de tegel *Aangesloten voertuig* per voertuig een vaste kleur (dezelfde als in de grafiek); is er geen (bekend) voertuig aangesloten, dan is de tegel grijs.
+
+Onder **Rapporten** staat een tabel met per maand (en per voertuig) het aantal sessies, kWh, kosten en de links Bekijken/PDF/CSV, met een totaalregel onderaan. Lopende maanden zijn gemarkeerd als *voorlopig*. Met het kleine recycle-icoon in de kop (*Rapporten opnieuw genereren...*) maak je na bevestiging alle rapporten opnieuw.
+
+De grafiek **Laadsessies deze maand** is een staafgrafiek van de geladen kWh per dag. Welke variant je krijgt hangt af van de kaarten die via HACS → Frontend zijn geïnstalleerd:
+
+| Geïnstalleerd | Grafiek |
+|---|---|
+| [Plotly Graph Card](https://github.com/dbuezas/lovelace-plotly-graph-card) (aanbevolen) | Alleen de dagen waarop geladen is; de kaart wordt smaller naarmate er minder laaddagen zijn. Laden er deze maand meerdere voertuigen, dan zijn de staven per voertuig gestapeld in de kleur van dat voertuig. |
+| [ApexCharts Card](https://github.com/RomRider/apexcharts-card) | Alle dagen van de maand op een tijd-as. |
+| Geen van beide | Eenvoudige tekstgrafiek met het totaal en de piekdag. |
 
 ## Rapporten en beveiliging
 

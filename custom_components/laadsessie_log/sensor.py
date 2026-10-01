@@ -23,6 +23,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             MonthEnergy(log),
             MonthCost(log),
             ActiveSession(log),
+            ActiveSessionCost(log),
             Reports(log),
             TariffStatus(log),
         ]
@@ -82,6 +83,15 @@ class MonthCost(_Base):
         return round(sum(s["kosten"] for s in self._this_month()), 2)
 
 
+def _sessie_kosten(t) -> float:
+    """Kosten van de lopende sessie tot nu, inclusief het nog niet afgesloten kwartier."""
+    cost = sum(r["kwh_vermogen"] * (r["prijs"] or 0) for r in t.session["kwartieren"])
+    price = t._live_price(t.q_start) if t.q_start else None
+    if price is None and t.timeline:
+        price = t.timeline[-1][1]
+    return cost + t.q_energy * (price or 0)
+
+
 class ActiveSession(_Base):
     _attr_name = "Laadsessie actief"
     _attr_unique_id = f"{DOMAIN}_actief"
@@ -103,19 +113,26 @@ class ActiveSession(_Base):
         if not t.session:
             # Altijd een voertuig-attribuut, zodat de dashboardtegel "Voertuig" niet leeg blijft.
             return {"actief": False, "voertuig": "Geen"}
-        rows = t.session["kwartieren"]
-        cost = sum(r["kwh_vermogen"] * (r["prijs"] or 0) for r in rows)
-        price = t._live_price(t.q_start) if t.q_start else None
-        if price is None and t.timeline:
-            price = t.timeline[-1][1]
-        cost += t.q_energy * (price or 0)
         return {
             "actief": True,
             "start": t.session["start"],
-            "kosten_tot_nu": round(cost, 2),
-            "kwartieren": len(rows),
+            "kosten_tot_nu": round(_sessie_kosten(t), 2),
+            "kwartieren": len(t.session["kwartieren"]),
             "voertuig": t.voertuig,
         }
+
+
+class ActiveSessionCost(_Base):
+    _attr_name = "Laadsessie kosten"
+    _attr_unique_id = f"{DOMAIN}_actief_kosten"
+    _attr_native_unit_of_measurement = "EUR"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_icon = "mdi:cash-clock"
+
+    @property
+    def native_value(self):
+        t = self.log.tracker
+        return round(_sessie_kosten(t), 2) if t.session else 0
 
 
 class Reports(_Base):
