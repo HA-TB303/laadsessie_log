@@ -1,5 +1,8 @@
 # Laadsessie log
 
+> [!WARNING]
+> **Dit is een persoonlijk hobbyproject zonder enige onderhoudsgarantie.** Het wordt in mijn vrije tijd gemaakt en gebruikt; er is geen toezegging dat issues, pull requests of feature-verzoeken worden opgepakt, en reactietijden kunnen (zeer) lang zijn of uitblijven. Gebruik op eigen risico — bekijk de code en test grondig voordat je het op je eigen Home Assistant-installatie draait.
+
 Home Assistant-integratie die laadsessies van je laadpaal per kwartier logt tegen een dynamisch stroomtarief (bijv. Zonneplan) en maandelijks een PDF- en CSV-laadrapport maakt, bijvoorbeeld voor declaratie bij je werkgever.
 
 ## Functies
