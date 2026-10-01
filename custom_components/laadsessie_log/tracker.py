@@ -8,11 +8,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, tzinfo
 
+from .const import ONBEKEND_VOERTUIG
+
 QUARTER = timedelta(minutes=15)
 END_GRACE = timedelta(minutes=2)
 PRICE_PROBE = timedelta(seconds=60)
 TARIFF_STALE_DEFAULT = timedelta(hours=3)
-MIN_SESSION_KWH = 0.05
+MIN_SESSION_KWH = 0.01
 
 # Statussen die niets zeggen over wel/niet aangesloten (glitches bij herverbinden)
 IGNORED_STATUS = {"", "unknown", "unavailable", "unknown 0", "offline", "none"}
@@ -56,6 +58,10 @@ class SessionTracker:
         self.session_energy: tuple[datetime, float] | None = None
         self.voertuig: str | None = None
         self.q_voertuig: str | None = None
+        # Laatst herkende (echte) voertuig in de huidige sessie, en het moment van een korte
+        # onderbreking (kabel eruit en binnen END_GRACE weer erin) waarna nog geen voertuig is gezien.
+        self.bekend_voertuig: str | None = None
+        self.onderbreking: datetime | None = None
         self.outage: dict | None = None
         self.outputs: list[tuple[str, dict]] = []
 
@@ -75,28 +81,51 @@ class SessionTracker:
             if self.session and not self.pending_end:
                 self.pending_end = ts
             return
+        if self.session and self.pending_end:
+            self.onderbreking = self.pending_end
         self.pending_end = None
         if self.session is None:
-            self.session = {
-                "start": _iso(ts),
-                "kwartieren": [],
-                "onvolledig": first,
-            }
-            self.q_energy = 0.0
-            # Voertuig van een vorige sessie niet laten doorlekken; wordt (opnieuw)
-            # vastgesteld via feed_voertuig() zodra de herkenning een resultaat geeft.
-            self.voertuig = None
-            self.q_voertuig = None
+            self._start_session(ts, first)
+
+    def _start_session(self, ts: datetime, onvolledig: bool = False) -> None:
+        self.session = {
+            "start": _iso(ts),
+            "kwartieren": [],
+            "onvolledig": onvolledig,
+            # Meterstand bij de start: de sessie-energiesensor kan ook een doorlopende
+            # meterstand zijn (bijv. WARP "energy_rel"); dan telt alleen het verschil.
+            "energie_start": self.session_energy[1] if self.session_energy else None,
+        }
+        self.q_energy = 0.0
+        # Voertuig van een vorige sessie niet laten doorlekken; wordt (opnieuw)
+        # vastgesteld via feed_voertuig() zodra de herkenning een resultaat geeft.
+        self.voertuig = None
+        self.q_voertuig = None
+        self.bekend_voertuig = None
+        self.onderbreking = None
 
     def feed_session_energy(self, ts: datetime, value: float | None) -> None:
         ts = self._advance(ts)
         if value is not None:
             self.session_energy = (ts, value)
+            start = self.session.get("energie_start") if self.session else None
+            if start is not None and value < start - 0.005:
+                # Teller is gereset: dit is een echte per-sessie-teller, de waarde zelf telt.
+                self.session["energie_start"] = 0.0
 
     def feed_voertuig(self, ts: datetime, value: str | None) -> None:
         self._advance(ts)
         value = (value or "").strip()
         if value and value.lower() not in IGNORED_STATUS:
+            if value != ONBEKEND_VOERTUIG:
+                if self.session and self.onderbreking and self.bekend_voertuig not in (None, value):
+                    # Kabel kort losgekoppeld en daarna een ander voertuig: dat is een nieuwe
+                    # sessie, ook al bleef de onderbreking korter dan END_GRACE.
+                    end = self.onderbreking
+                    self._finalize(end, ts)
+                    self._start_session(end)
+                self.bekend_voertuig = value
+                self.onderbreking = None
             self.voertuig = value
 
     def feed_tariff(self, ts: datetime, value: float | None) -> None:
@@ -212,7 +241,11 @@ class SessionTracker:
         rows = session["kwartieren"]
         integrated = sum(r["kwh_vermogen"] for r in rows)
         meter = None
-        if self.session_energy and self.session_energy[0] >= start - timedelta(seconds=60):
+        base = session.get("energie_start")
+        if self.session_energy and base is not None:
+            delta = self.session_energy[1] - base
+            meter = delta if delta > 0.0001 else None
+        elif self.session_energy and self.session_energy[0] >= start - timedelta(seconds=60):
             meter = self.session_energy[1] if self.session_energy[1] > 0 else None
 
         if meter is not None and integrated <= 0:
@@ -276,6 +309,8 @@ class SessionTracker:
             "session_energy": [_iso(self.session_energy[0]), self.session_energy[1]] if self.session_energy else None,
             "voertuig": self.voertuig,
             "q_voertuig": self.q_voertuig,
+            "bekend_voertuig": self.bekend_voertuig,
+            "onderbreking": _iso(self.onderbreking),
             "outage": self.outage,
         }
 
@@ -300,6 +335,8 @@ class SessionTracker:
         t.session_energy = (_dt(se[0]), se[1]) if se else None
         t.voertuig = data.get("voertuig")
         t.q_voertuig = data.get("q_voertuig")
+        t.bekend_voertuig = data.get("bekend_voertuig")
+        t.onderbreking = _dt(data.get("onderbreking"))
         t.outage = data.get("outage")
         # Vermogen is na een herstart onbekend tot de eerste nieuwe meting.
         t.power = None

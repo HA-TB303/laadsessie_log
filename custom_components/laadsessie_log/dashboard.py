@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components import frontend
@@ -22,7 +24,6 @@ from .const import (
     DEFAULT_TARIEF_INTERVAL,
     DEFAULT_TARIFF_NAME,
     DOMAIN,
-    REPORT_URL,
     TARIEF_INTERVAL_TEGEL,
 )
 
@@ -51,6 +52,52 @@ def _own_entities(hass: HomeAssistant) -> dict[str, str]:
     return out
 
 
+def _has_apexcharts(hass: HomeAssistant) -> bool:
+    """Is de (HACS-)kaart apexcharts-card beschikbaar? Zo niet, dan valt de grafiek terug op tekst."""
+    try:
+        items = hass.data[LOVELACE_DATA].resources.async_items() or []
+    except Exception:  # noqa: BLE001 - resources nog niet geladen of in YAML-modus
+        items = []
+    if any("apexcharts-card" in (i.get("url") or "") for i in items):
+        return True
+    return os.path.isdir(hass.config.path("www", "community", "apexcharts-card"))
+
+
+def _apex_grafiek(entity: str) -> dict[str, Any]:
+    """Staafgrafiek: dagen van de maand op de x-as, geladen kWh op de y-as."""
+    return {
+        "type": "custom:apexcharts-card",
+        "graph_span": "1month",
+        "span": {"start": "month"},
+        "header": {"show": False},
+        "now": {"show": False},
+        "yaxis": [{"min": 0, "decimals": 1, "apex_config": {"title": {"text": "kWh"}}}],
+        "apex_config": {
+            "chart": {"height": 300},
+            "xaxis": {"labels": {"datetimeFormatter": {"day": "d"}}},
+            "tooltip": {"x": {"format": "d MMMM"}},
+            "plotOptions": {"bar": {"columnWidth": "70%"}},
+            "legend": {"show": False},
+        },
+        "series": [
+            {
+                "entity": entity,
+                "name": "Geladen",
+                "type": "column",
+                "unit": "kWh",
+                "float_precision": 2,
+                "show": {"in_header": False, "legend_value": False},
+                # Staaf midden op de dag (12:00) zodat hij netjes boven het daglabel staat.
+                "data_generator": (
+                    "const n = new Date();\n"
+                    "return (entity.attributes.per_dag || []).map("
+                    "d => [new Date(n.getFullYear(), n.getMonth(), d.dag, 12).getTime(), d.kwh]);"
+                ),
+            }
+        ],
+    }
+
+
 def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
     """Dashboardconfiguratie opbouwen op basis van de ingestelde sensoren."""
     e = _own_entities(hass)
@@ -61,65 +108,75 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
     tiles = [
         {"type": "tile", "entity": e["maand_kwh"], "name": "Geladen"},
         {"type": "tile", "entity": e["maand_kosten"], "name": "Kosten"},
-        {"type": "tile", "entity": e["actief"], "name": "Actieve sessie"},
     ]
+    # Laadpaal en aangesloten voertuig als paar naast elkaar (elk een halve rij breed).
+    if conf.get(CONF_STATUS):
+        tiles.append({"type": "tile", "entity": conf[CONF_STATUS], "name": "Laadpaal"})
     if per_voertuig or not conf.get(CONF_KENTEKEN):
         # Zodra er per voertuig wordt gerapporteerd is een vast kenteken toch niet meer zinvol
         # (zie ook _info() in __init__.py); toon dan altijd welk voertuig nu is aangesloten.
         tiles.append(
             {
-                "type": "markdown",
-                "content": (
-                    f"{{% set v = state_attr('{e['actief']}','voertuig') %}}\n"
-                    "**Aangesloten:** {{ v if v and v != 'Onbekend' else 'nee' }}"
-                ),
+                "type": "tile",
+                "entity": e["actief"],
+                "name": "Voertuig",
+                "icon": "mdi:car",
+                "state_content": "voertuig",
             }
         )
-    if conf.get(CONF_STATUS):
-        tiles.append({"type": "tile", "entity": conf[CONF_STATUS], "name": "Laadpaal"})
+    tiles.append({"type": "tile", "entity": e["actief"], "name": "Actieve sessie"})
     tiles.append({"type": "tile", "entity": e["tarief_status"], "name": f"{tariff_name} tarief"})
     if conf.get(CONF_TARIFF):
         interval = conf.get(CONF_TARIEF_INTERVAL) or DEFAULT_TARIEF_INTERVAL
         tegel_naam = TARIEF_INTERVAL_TEGEL.get(interval, TARIEF_INTERVAL_TEGEL[DEFAULT_TARIEF_INTERVAL])
         tiles.append({"type": "tile", "entity": conf[CONF_TARIFF], "name": tegel_naam})
 
-    kop = (
-        "| Maand | Voertuig | Sessies | kWh | Kosten | Bekijk | PDF | CSV |\n"
-        if per_voertuig
-        else "| Maand | Sessies | kWh | Kosten | Bekijk | PDF | CSV |\n"
-    )
-    lijn = "|:--|:--|--:|--:|--:|:-:|:-:|:-:|\n" if per_voertuig else "|:--|--:|--:|--:|:-:|:-:|:-:|\n"
-    voertuig_cel = "| {{ x.voertuig or '' }} " if per_voertuig else ""
+    # Als HTML-tabel i.p.v. markdown: alleen zo kan hij de volle breedte van de kaart vullen
+    # (de markdown-kaart laat het width-attribuut door, maar geen CSS).
+    kolommen = [("Maand", "left")]
+    if per_voertuig:
+        kolommen.append(("Voertuig", "left"))
+    kolommen += [("Sessies", "right"), ("kWh", "right"), ("Kosten", "right")]
+    kolommen += [("Bekijk", "center"), ("PDF", "center"), ("CSV", "center")]
+    kop = "<tr>" + "".join(f'<th align="{al}">{naam}</th>' for naam, al in kolommen) + "</tr>\n"
+    voertuig_cel = "<td>{{ x.voertuig or '' }}</td>" if per_voertuig else ""
     table = (
         f"{{% set r = state_attr('{reports}','rapporten') or [] %}}\n"
         "{% if r %}\n"
-        f"{kop}{lijn}"
-        "{% for x in r %}| {{ x.maand }}{{ ' *(voorlopig)*' if x.voorlopig }} "
+        f'<table width="100%">\n{kop}'
+        "{% for x in r %}<tr>"
+        "<td>{{ x.maand }}{{ ' <i>(voorlopig)</i>' if x.voorlopig }}</td>"
         f"{voertuig_cel}"
-        "| {{ x.sessies }} "
-        "| {{ '%.2f'|format(x.kwh) | replace('.',',') }} "
-        "| €\u00a0{{ '%.2f'|format(x.kosten) | replace('.',',') }} "
-        f"| <a href=\"{REPORT_URL}/viewer/viewer.html?file={{{{ x.pdf.split('/') | last }}}}\" "
-        "target=\"_blank\" rel=\"noopener\" title=\"Bekijken\"><ha-icon icon=\"mdi:eye\"></ha-icon></a> "
-        "| <a href=\"{{ x.pdf }}\" target=\"_blank\" rel=\"noopener\" title=\"PDF openen\">"
-        "<ha-icon icon=\"mdi:file-pdf-box\"></ha-icon></a> "
-        "| <a href=\"{{ x.csv }}\" target=\"_blank\" rel=\"noopener\" download title=\"CSV downloaden\">"
-        "<ha-icon icon=\"mdi:file-delimited\"></ha-icon></a> |\n"
-        "{% endfor %}\n"
+        '<td align="right">{{ x.sessies }}</td>'
+        "<td align=\"right\">{{ '%.2f'|format(x.kwh) | replace('.',',') }}</td>"
+        "<td align=\"right\">€\u00a0{{ '%.2f'|format(x.kosten) | replace('.',',') }}</td>"
+        '<td align="center"><a href="{{ x.viewer }}" '
+        'target="_blank" rel="noopener" title="Bekijken"><ha-icon icon="mdi:eye"></ha-icon></a></td>'
+        '<td align="center"><a href="{{ x.pdf }}" target="_blank" rel="noopener" title="PDF openen">'
+        '<ha-icon icon="mdi:file-pdf-box"></ha-icon></a></td>'
+        '<td align="center"><a href="{{ x.csv }}" target="_blank" rel="noopener" download title="CSV downloaden">'
+        '<ha-icon icon="mdi:file-delimited"></ha-icon></a></td>'
+        "</tr>\n{% endfor %}</table>\n"
         "{% else %}Nog geen rapporten.{% endif %}"
     )
 
-    # Blokjes-sparkline als gewone (grote) markdown-tekst: een code-blok kreeg in de praktijk
-    # een kleurthema waarin de tekens onzichtbaar bleken, terwijl gewone tekst wel zichtbaar is.
+    apex = _has_apexcharts(hass)
+    # Zonder apexcharts-card: blokjes-sparkline als gewone (grote) markdown-tekst. Een code-blok
+    # kreeg in de praktijk een kleurthema waarin de tekens onzichtbaar bleken.
+    sparkline = (
+        ""
+        if apex
+        else "##### {% for d in dagen %}"
+        "{{ '▁▂▃▄▅▆▇█'"
+        "[ ((d.kwh / max_kwh * 7) | round(0) | int) if max_kwh else 0 ] }}"
+        "{% endfor %}\n\n"
+    )
     grafiek = (
         f"{{% set dagen = state_attr('{e['maand_kwh']}','per_dag') or [] %}}\n"
         "{% set totaal = dagen | sum(attribute='kwh') %}\n"
         "{% if totaal > 0 %}\n"
         "{% set max_kwh = dagen | map(attribute='kwh') | max %}\n"
-        "##### {% for d in dagen %}"
-        "{{ '▁▂▃▄▅▆▇█'"
-        "[ ((d.kwh / max_kwh * 7) | round(0) | int) if max_kwh else 0 ] }}"
-        "{% endfor %}\n\n"
+        f"{sparkline}"
         "Dag 1 t/m {{ dagen | length }} — totaal {{ '%.1f'|format(totaal)|replace('.',',') }} kWh, "
         "piek {{ '%.1f'|format(max_kwh)|replace('.',',') }} kWh op dag "
         "{{ (dagen | selectattr('kwh','equalto',max_kwh) | first).dag }}"
@@ -130,6 +187,8 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         {"type": "heading", "heading": "Laadsessies deze maand", "icon": "mdi:chart-bar"},
         {"type": "markdown", "grid_options": {"columns": "full"}, "content": grafiek},
     ]
+    if apex:
+        grafiek_kaarten.insert(1, {**_apex_grafiek(e["maand_kwh"]), "grid_options": {"columns": "full"}})
 
     rapporten_kaarten = [
         {"type": "heading", "heading": "Rapporten", "icon": "mdi:file-document-multiple"},
@@ -142,7 +201,9 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
             {"type": "heading", "heading": "Rapport vorige maand", "icon": "mdi:file-pdf-box"},
             {
                 "type": "iframe",
-                "url": f"{REPORT_URL}/viewer/viewer.html?file=laadrapport_vorige_maand.pdf",
+                # Ondertekend bij het ophalen van het dashboard; ruim geldig omdat de frontend
+                # de dashboardconfiguratie lang in het geheugen houdt.
+                "url": hass.data[DOMAIN].links.viewer("laadrapport_vorige_maand.pdf", timedelta(hours=24)),
                 "grid_options": {"columns": "full", "rows": 24},
             },
         ]

@@ -20,7 +20,10 @@ CONF_INFO = (CONF_NAAM, CONF_ADRES, CONF_KENTEKEN)
 ONBEKEND_VOERTUIG = "Onbekend"
 
 DASHBOARD_URL = "laadsessie-log"
-REPORT_URL = "/local/laadrapporten"
+# Rapporten alleen via een geauthenticeerd endpoint (zie rapport_view.py), niet via /local.
+REPORT_URL = f"/api/{DOMAIN}/rapport"
+# De PDF-viewer zelf bevat geen gegevens en mag dus in de (openbare) www-map staan.
+VIEWER_URL = "/local/laadrapporten/viewer/viewer.html"
 
 DEFAULT_TARIFF_NAME = "Zonneplan"
 DEFAULT_DISCONNECTED = "disconnected, off, not_connected, unplugged"

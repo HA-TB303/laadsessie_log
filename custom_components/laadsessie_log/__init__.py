@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from calendar import monthrange
 from datetime import datetime, timedelta
 from functools import partial
@@ -47,12 +48,15 @@ from .const import (
     TARIEF_INTERVAL_UREN,
 )
 from .pdf import MONTHS, build_report, num
+from .rapport_view import Ondertekenaar, RapportView
 from .tracker import SOURCE_LIVE, SessionTracker
 
 _LOGGER = logging.getLogger(__name__)
 
 NOTIFICATION_ID = f"{DOMAIN}_zonneplan"
-REPORT_DIR = "www/laadrapporten"
+REPORT_DIR = "laadsessies/rapporten"
+OUDE_REPORT_DIR = "www/laadrapporten"  # tot en met 1.4.0: openbaar via /local
+VIEWER_DIR = "www/laadrapporten/viewer"
 FIRST_RUN_DAYS = 10
 RETENTION_MONTHS = 15  # naast de lopende maand
 PLATFORMS = [Platform.SENSOR]
@@ -115,6 +119,25 @@ def _install_viewer(src_dir: str, dest_dir: str) -> None:
         _write_bytes(dest, data, [])
 
 
+def _verplaats_oude_rapporten(oud: str, nieuw: str) -> int:
+    """Rapporten uit de openbare www-map naar de afgeschermde rapportmap verplaatsen."""
+    if not os.path.isdir(oud):
+        return 0
+    os.makedirs(nieuw, exist_ok=True)
+    aantal = 0
+    for name in os.listdir(oud):
+        src = os.path.join(oud, name)
+        if not os.path.isfile(src) or not name.endswith((".pdf", ".csv", ".html")):
+            continue
+        dest = os.path.join(nieuw, name)
+        if os.path.exists(dest):
+            os.remove(src)
+        else:
+            shutil.move(src, dest)
+        aantal += 1
+    return aantal
+
+
 def _prev_month(year: int, month: int) -> tuple[int, int]:
     return (year - 1, 12) if month == 1 else (year, month - 1)
 
@@ -169,6 +192,7 @@ class LaadLog:
         self.tz = dt_util.get_default_time_zone()
         self.data_dir = hass.config.path("laadsessies")
         self.report_dir = hass.config.path(REPORT_DIR)
+        self.links = Ondertekenaar(hass)
         self.state_path = os.path.join(self.data_dir, "state.json")
         self.sessions_path = os.path.join(self.data_dir, "sessies.json")
         self.tracker = SessionTracker(self.tz, self.disconnected, self.tariff_stale)
@@ -192,11 +216,16 @@ class LaadLog:
         self.sessions = await self.hass.async_add_executor_job(_read_json, self.sessions_path, [])
         if state:
             self.tracker = SessionTracker.from_dict(state, self.tz, self.disconnected, self.tariff_stale)
+        verplaatst = await self.hass.async_add_executor_job(
+            _verplaats_oude_rapporten, self.hass.config.path(OUDE_REPORT_DIR), self.report_dir
+        )
+        if verplaatst:
+            _LOGGER.info("Laadsessie log: %d rapportbestanden uit www/ naar %s verplaatst", verplaatst, REPORT_DIR)
         self.reports = await self.hass.async_add_executor_job(self._scan_reports)
         await self.hass.async_add_executor_job(
             _install_viewer,
             os.path.join(os.path.dirname(__file__), "viewer"),
-            os.path.join(self.report_dir, "viewer"),
+            self.hass.config.path(VIEWER_DIR),
         )
 
     async def async_regenerate_all(self) -> int:
@@ -491,7 +520,8 @@ class LaadLog:
     async def async_generate_voertuigen(self, year: int, month: int) -> list[dict]:
         """Genereert het rapport voor een maand; bij CONF_VOERTUIG één rapport per voertuig."""
         if self.conf.get(CONF_VOERTUIG):
-            voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)) | {ONBEKEND_VOERTUIG})
+            # Alleen voertuigen die die maand echt geladen hebben; lege rapporten zeggen niets.
+            voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)))
             return [await self.async_generate(year, month, v) for v in voertuigen]
         return [await self.async_generate(year, month)]
 
@@ -503,7 +533,7 @@ class LaadLog:
             months.add((end.year, end.month))
         for year, month in sorted(months):
             if self.conf.get(CONF_VOERTUIG):
-                voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)) | {ONBEKEND_VOERTUIG})
+                voertuigen = sorted(self._voertuigen_in(self.month_sessions(year, month)))
             else:
                 voertuigen = [None]
             for voertuig in voertuigen:
@@ -624,6 +654,11 @@ class LaadLog:
                 kandidaten = self._voertuigen_in(self.month_sessions(year, month)) | {ONBEKEND_VOERTUIG}
                 voertuig = next((v for v in kandidaten if _slug(v) == slug), slug)
             sessions = self.month_sessions(year, month, voertuig)
+            kwh = round(sum(s["kwh"] for s in sessions), 2)
+            kosten = round(sum(s["kosten"] for s in sessions), 2)
+            if not kwh and not kosten:
+                # Rapporten zonder geladen energie en kosten niet tonen.
+                continue
             mtime = datetime.fromtimestamp(os.path.getmtime(os.path.join(self.report_dir, name)), self.tz)
             out.append(
                 {
@@ -631,12 +666,12 @@ class LaadLog:
                     "maand_nr": month,
                     "maand": f"{MONTHS[month - 1]} {year}",
                     "voertuig": voertuig,
-                    "pdf": f"{REPORT_URL}/{name}",
-                    "viewer": f"{REPORT_URL}/viewer/viewer.html?file={name}",
-                    "csv": f"{REPORT_URL}/{name[:-4]}.csv",
+                    # Bestandsnamen; de sensor maakt er ondertekende links van (zie rapport_view.py).
+                    "pdf": name,
+                    "csv": f"{name[:-4]}.csv",
                     "sessies": len(sessions),
-                    "kwh": round(sum(s["kwh"] for s in sessions), 2),
-                    "kosten": round(sum(s["kosten"] for s in sessions), 2),
+                    "kwh": kwh,
+                    "kosten": kosten,
                     "voorlopig": mtime < datetime(year + (month == 12), month % 12 + 1, 1, tzinfo=self.tz),
                 }
             )
@@ -664,6 +699,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             return resultaten[0]
         return {"rapporten": resultaten}
 
+    hass.http.register_view(RapportView())
     hass.services.async_register(
         DOMAIN,
         "genereer_rapport",
