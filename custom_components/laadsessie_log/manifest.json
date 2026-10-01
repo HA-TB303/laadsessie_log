@@ -1,0 +1,20 @@
+{
+  "domain": "laadsessie_log",
+  "name": "Laadsessie log",
+  "codeowners": [
+    "@HA-TB303"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "recorder",
+    "persistent_notification",
+    "http"
+  ],
+  "documentation": "https://github.com/HA-TB303/laadsessie_log",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/HA-TB303/laadsessie_log/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "1.1.0"
+}

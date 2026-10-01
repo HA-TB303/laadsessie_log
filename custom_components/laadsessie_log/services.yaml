@@ -1,0 +1,20 @@
+genereer_rapport:
+  fields:
+    jaar:
+      example: 2026
+      selector:
+        number:
+          min: 2020
+          max: 2100
+          mode: box
+    maand:
+      example: 9
+      selector:
+        number:
+          min: 1
+          max: 12
+          mode: box
+    alle:
+      default: false
+      selector:
+        boolean:

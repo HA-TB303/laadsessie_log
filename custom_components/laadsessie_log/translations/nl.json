@@ -1,0 +1,73 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Laadsessie log",
+        "description": "Kies de sensoren van je laadpaal en je dynamische tarief.",
+        "data": {
+          "vermogen": "Laadvermogen",
+          "status": "Laadpaalstatus",
+          "sessie_energie": "Sessie-energie (optioneel)",
+          "tarief": "Kwartiertarief",
+          "tarief_naam": "Naam tariefbron",
+          "status_niet_aangesloten": "Statussen 'niet aangesloten'"
+        },
+        "data_description": {
+          "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
+          "status": "Sensor of binaire sensor die aangeeft of de auto is aangesloten.",
+          "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
+          "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
+          "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
+          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten."
+        }
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Laadsessie log is al ingesteld."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Laadsessie log",
+        "description": "Wijzig de gebruikte sensoren. De integratie wordt daarna opnieuw geladen.",
+        "data": {
+          "vermogen": "Laadvermogen",
+          "status": "Laadpaalstatus",
+          "sessie_energie": "Sessie-energie (optioneel)",
+          "tarief": "Kwartiertarief",
+          "tarief_naam": "Naam tariefbron",
+          "status_niet_aangesloten": "Statussen 'niet aangesloten'"
+        },
+        "data_description": {
+          "vermogen": "Sensor met het actuele laadvermogen (kW of W).",
+          "status": "Sensor of binaire sensor die aangeeft of de auto is aangesloten.",
+          "sessie_energie": "Energiemeter van de huidige laadsessie (kWh of Wh). Het totaal per sessie wordt hierop gecorrigeerd; zonder deze sensor wordt het laadvermogen opgeteld.",
+          "tarief": "Sensor met het actuele stroomtarief in EUR/kWh.",
+          "tarief_naam": "Naam van de leverancier zoals in rapporten en meldingen getoond.",
+          "status_niet_aangesloten": "Statuswaarden (komma-gescheiden) waarbij de auto niet is aangesloten; elke andere status telt als aangesloten."
+        }
+      }
+    }
+  },
+  "services": {
+    "genereer_rapport": {
+      "name": "Genereer laadrapport",
+      "description": "Maakt het PDF- en CSV-laadrapport voor een maand (standaard: vorige maand), of alle rapporten opnieuw.",
+      "fields": {
+        "jaar": {
+          "name": "Jaar",
+          "description": "Jaar van het rapport."
+        },
+        "maand": {
+          "name": "Maand",
+          "description": "Maandnummer (1-12)."
+        },
+        "alle": {
+          "name": "Alle rapporten",
+          "description": "Alle bestaande rapporten opnieuw maken (jaar en maand worden genegeerd)."
+        }
+      }
+    }
+  }
+}

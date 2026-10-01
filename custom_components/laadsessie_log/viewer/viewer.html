@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laadrapport</title>
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; background: #8a8f96; font: 14px system-ui, sans-serif; }
+  #bar { position: sticky; top: 0; z-index: 1; display: flex; gap: 12px; align-items: center;
+         padding: 8px 12px; background: #2b2f34; color: #fff; }
+  #bar a { color: #9fe0d8; text-decoration: none; margin-left: auto; }
+  #pages { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 12px; }
+  canvas { background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.35); max-width: 100%; height: auto; }
+  #msg { color: #fff; padding: 24px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="bar"><span id="title">Laadrapport</span><a id="open" target="_blank" rel="noopener">Openen / downloaden</a></div>
+<div id="pages"><div id="msg">Rapport laden…</div></div>
+<script src="pdf.min.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  // Alleen een bestandsnaam uit de rapportmap; HA weigert URL's met "../".
+  const name = (params.get("file") || "laadrapport_vorige_maand.pdf").split("/").pop();
+  const url = new URL("../" + encodeURIComponent(name), location.href);
+  document.getElementById("open").href = url.href;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "pdf.worker.min.js";
+  const pagesEl = document.getElementById("pages");
+  let doc = null, lastWidth = 0;
+
+  async function render() {
+    const width = Math.min(pagesEl.clientWidth - 24, 1100);
+    if (!doc || Math.abs(width - lastWidth) < 20) return;
+    lastWidth = width;
+    const dpr = window.devicePixelRatio || 1;
+    const canvases = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const page = await doc.getPage(n);
+      const base = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: (width / base.width) * dpr });
+      const c = document.createElement("canvas");
+      c.width = vp.width; c.height = vp.height;
+      c.style.width = width + "px";
+      await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+      canvases.push(c);
+    }
+    pagesEl.replaceChildren(...canvases);
+  }
+
+  const busted = new URL(url); busted.searchParams.set("t", Date.now());
+  pdfjsLib.getDocument(busted.href).promise.then(d => {
+    doc = d;
+    document.getElementById("title").textContent = decodeURIComponent(url.pathname.split("/").pop());
+    render();
+  }).catch(() => {
+    document.getElementById("msg").textContent = "Rapport niet gevonden.";
+  });
+  let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(render, 250); });
+</script>
+</body>
+</html>
