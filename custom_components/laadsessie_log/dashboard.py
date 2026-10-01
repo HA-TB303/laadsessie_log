@@ -52,15 +52,66 @@ def _own_entities(hass: HomeAssistant) -> dict[str, str]:
     return out
 
 
-def _has_apexcharts(hass: HomeAssistant) -> bool:
-    """Is de (HACS-)kaart apexcharts-card beschikbaar? Zo niet, dan valt de grafiek terug op tekst."""
+def _heeft_kaart(hass: HomeAssistant, bestand: str, hacs_map: str) -> bool:
+    """Is een (HACS-)kaart beschikbaar? Zo niet, dan valt de grafiek terug op een alternatief."""
     try:
         items = hass.data[LOVELACE_DATA].resources.async_items() or []
     except Exception:  # noqa: BLE001 - resources nog niet geladen of in YAML-modus
         items = []
-    if any("apexcharts-card" in (i.get("url") or "") for i in items):
+    if any(bestand in (i.get("url") or "") for i in items):
         return True
-    return os.path.isdir(hass.config.path("www", "community", "apexcharts-card"))
+    return os.path.isdir(hass.config.path("www", "community", hacs_map))
+
+
+def _plotly_grafiek(entity: str) -> dict[str, Any]:
+    """Staafgrafiek met alleen de dagen waarop geladen is (categorie-as, dus geen lege dagen)."""
+    dagen = f"(hass.states['{entity}']?.attributes.per_dag || []).filter(d => d.kwh > 0)"
+    # Themakleuren van HA uitlezen; raw_plotly_config zet de standaardopmaak van de kaart uit.
+    kleur = (
+        "$ex getComputedStyle(document.body).getPropertyValue('{var}').trim() || '{terugval}'"
+    )
+    tekst = kleur.format(var="--secondary-text-color", terugval="#888")
+    return {
+        "type": "custom:plotly-graph",
+        "raw_plotly_config": True,
+        "hours_to_show": "current_month",
+        "entities": [
+            {
+                "entity": "",
+                "name": "Geladen",
+                "type": "bar",
+                "x": (
+                    f"$ex {dagen}.map(d => new Date(new Date().getFullYear(), new Date().getMonth(), d.dag)"
+                    ".toLocaleDateString('nl-NL', {day: 'numeric', month: 'short'}))"
+                ),
+                "y": f"$ex {dagen}.map(d => d.kwh)",
+                "marker": {"color": kleur.format(var="--primary-color", terugval="#03a9f4")},
+                "texttemplate": "%{y:.1f}",
+                "textposition": "outside",
+                "cliponaxis": False,
+                "hovertemplate": "%{x}: %{y:.2f} kWh<extra></extra>",
+            }
+        ],
+        "layout": {
+            "height": 260,
+            "margin": {"t": 24, "b": 36, "l": 44, "r": 12},
+            "paper_bgcolor": "rgba(0,0,0,0)",
+            "plot_bgcolor": "rgba(0,0,0,0)",
+            "font": {"family": "Roboto, Noto, sans-serif", "size": 12, "color": tekst},
+            "separators": ",.",  # decimale komma
+            "bargap": 0.35,
+            "showlegend": False,
+            "xaxis": {"type": "category", "fixedrange": True, "showgrid": False},
+            "yaxis": {
+                "title": {"text": "kWh"},
+                "rangemode": "tozero",
+                "fixedrange": True,
+                "gridcolor": "rgba(127,127,127,0.2)",
+                "zeroline": False,
+            },
+        },
+        "config": {"displayModeBar": False, "responsive": True},
+    }
 
 
 def _apex_grafiek(entity: str) -> dict[str, Any]:
@@ -119,7 +170,7 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
             {
                 "type": "tile",
                 "entity": e["actief"],
-                "name": "Voertuig",
+                "name": "Aangesloten voertuig",
                 "icon": "mdi:car",
                 "state_content": "voertuig",
             }
@@ -160,12 +211,14 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         "{% else %}Nog geen rapporten.{% endif %}"
     )
 
-    apex = _has_apexcharts(hass)
+    # Voorkeur: Plotly (alleen laaddagen), dan ApexCharts (hele maand), anders een tekstgrafiek.
+    plotly = _heeft_kaart(hass, "plotly-graph-card", "lovelace-plotly-graph-card")
+    apex = not plotly and _heeft_kaart(hass, "apexcharts-card", "apexcharts-card")
     # Zonder apexcharts-card: blokjes-sparkline als gewone (grote) markdown-tekst. Een code-blok
     # kreeg in de praktijk een kleurthema waarin de tekens onzichtbaar bleken.
     sparkline = (
         ""
-        if apex
+        if plotly or apex
         else "##### {% for d in dagen %}"
         "{{ '▁▂▃▄▅▆▇█'"
         "[ ((d.kwh / max_kwh * 7) | round(0) | int) if max_kwh else 0 ] }}"
@@ -187,11 +240,38 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
         {"type": "heading", "heading": "Laadsessies deze maand", "icon": "mdi:chart-bar"},
         {"type": "markdown", "grid_options": {"columns": "full"}, "content": grafiek},
     ]
-    if apex:
+    if plotly:
+        grafiek_kaarten.insert(1, {**_plotly_grafiek(e["maand_kwh"]), "grid_options": {"columns": "full"}})
+    elif apex:
         grafiek_kaarten.insert(1, {**_apex_grafiek(e["maand_kwh"]), "grid_options": {"columns": "full"}})
 
+    # Grafiek alleen zo breed als nodig: bij weinig laaddagen een smalle kolom.
+    st = hass.states.get(e["maand_kwh"])
+    laaddagen = sum(1 for d in ((st and st.attributes.get("per_dag")) or []) if d.get("kwh"))
+    grafiek_breedte = 3 if apex else (1 if laaddagen <= 8 else 2 if laaddagen <= 16 else 3)
+
     rapporten_kaarten = [
-        {"type": "heading", "heading": "Rapporten", "icon": "mdi:file-document-multiple"},
+        {
+            "type": "heading",
+            "heading": "Rapporten",
+            "icon": "mdi:file-document-multiple",
+            # Klein recycle-icoon rechts in de kop i.p.v. een grote knop bovenaan het dashboard.
+            "badges": [
+                {
+                    "type": "entity",
+                    "entity": reports,
+                    "icon": "mdi:recycle",
+                    "show_state": False,
+                    "show_icon": True,
+                    "tap_action": {
+                        "action": "perform-action",
+                        "perform_action": f"{DOMAIN}.genereer_rapport",
+                        "data": {"alle": True},
+                        "confirmation": {"text": "Alle rapporten opnieuw maken?"},
+                    },
+                }
+            ],
+        },
         {"type": "markdown", "grid_options": {"columns": "full"}, "content": table},
     ]
     if not per_voertuig:
@@ -223,23 +303,11 @@ def build_config(hass: HomeAssistant, conf: dict[str, Any]) -> dict[str, Any]:
                         "cards": [
                             {"type": "heading", "heading": "Laden deze maand", "icon": ICON},
                             *tiles,
-                            {
-                                "type": "button",
-                                "entity": reports,
-                                "name": "Alle rapporten opnieuw maken",
-                                "icon": "mdi:file-refresh",
-                                "show_state": False,
-                                "tap_action": {
-                                    "action": "perform-action",
-                                    "perform_action": f"{DOMAIN}.genereer_rapport",
-                                    "data": {"alle": True},
-                                },
-                            },
                         ],
                     },
                     {
                         "type": "grid",
-                        "column_span": 3,
+                        "column_span": grafiek_breedte,
                         "cards": grafiek_kaarten,
                     },
                     {
