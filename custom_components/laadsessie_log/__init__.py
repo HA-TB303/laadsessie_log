@@ -408,7 +408,15 @@ class LaadLog:
         provisional = (now.year, now.month) <= (year, month)
         sessions = self.month_sessions(year, month)
         data = build_report(
-            sessions, year, month, self.tz, self._info(), provisional, self.tariff_name, self.tarief_label
+            sessions,
+            year,
+            month,
+            self.tz,
+            self._info(),
+            provisional,
+            self.tariff_name,
+            self.tarief_label,
+            self.tarief_interval == "maand",
         )
         base = os.path.join(self.report_dir, f"laadrapport_{year}-{month:02d}")
         copies = []
