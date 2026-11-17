@@ -269,7 +269,7 @@ def build_report(
             ("kWh", 58, "right"), ("Gem. €/kWh", 72, "right"), ("Kosten", 72, "right"),
             ("Opm.", W - 418, "left")]
     rows = []
-    any_fb = any_partial = any_unknown = False
+    any_fb = any_partial = any_unknown = any_missed = False
     for s in sessions:
         st = datetime.fromisoformat(s["start"]).astimezone(tz)
         en = datetime.fromisoformat(s["einde"]).astimezone(tz)
@@ -281,7 +281,10 @@ def build_report(
         if any(q["bron"] == "onbekend" for q in s["kwartieren"]):
             notes.append("?")
             any_unknown = True
-        if s.get("onvolledig"):
+        if s.get("gemist"):
+            notes.append("G")
+            any_missed = True
+        elif s.get("onvolledig"):
             notes.append("O")
             any_partial = True
         rows.append([
@@ -308,6 +311,9 @@ def build_report(
         notes.append("? = voor een of meer kwartieren was geen tarief bekend; deze zijn met € 0 meegeteld.")
     if any_partial:
         notes.append("O = onvolledige sessie: begin van de sessie lag voor de start van de registratie.")
+    if any_missed:
+        notes.append("G = gemiste sessie: geladen terwijl de laadpaalgegevens niet beschikbaar waren; energie volgens de")
+        notes.append("      laadpaal, start/einde = begin/einde van de onderbreking (exacte tijden in de laadpaal-app).")
     notes.append("Sessies worden toegerekend aan de maand waarin ze eindigen.")
     rep.y -= 14
     rep.need(14 * len(notes) + 16)

@@ -54,6 +54,7 @@ Met het optionele veld **Voertuig** wordt elke laadsessie gekoppeld aan de waard
 
 - Een sessie eindigt pas als de laadpaal langer dan **2 minuten** "niet aangesloten" meldt; korte haperingen of de kabel even loshalen en terugsteken bij dezelfde auto horen bij dezelfde sessie.
 - Wordt de kabel kort losgekoppeld en daarna een **ander voertuig** herkend (bijvoorbeeld snel wisselen van auto), dan begint er wel direct een nieuwe sessie.
+- Was de sessie-energiesensor **onbeschikbaar** (Home Assistant uit of vastgelopen, integratie van de laadpaal weg) en komt die terug met een andere waarde terwijl de auto niet (meer) is aangesloten, dan is er geladen zonder dat Home Assistant het zag. Er wordt dan een **gemiste sessie** vastgelegd met de energie volgens de laadpaal, over de periode van de onderbreking en met het terugvaltarief, en er verschijnt een melding. In het PDF-rapport staat zo'n sessie met **G**; de exacte tijden staan in de app van de laadpaal.
 - Sessies met minder dan **0,01 kWh** worden genegeerd.
 - Maanden of voertuigen zonder geladen energie (0 kWh en € 0,00) krijgen geen rapport en worden niet in het overzicht getoond.
 

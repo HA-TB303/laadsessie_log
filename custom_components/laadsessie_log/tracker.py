@@ -63,6 +63,12 @@ class SessionTracker:
         self.bekend_voertuig: str | None = None
         self.onderbreking: datetime | None = None
         self.outage: dict | None = None
+        # Gemiste sessies: de sessie-energiesensor was onbeschikbaar (HA uit/vastgelopen of
+        # integratie weg) en kwam terug met een andere waarde terwijl er geen sessie liep.
+        self.meter_gat: dict | None = None  # {"sinds", "waarde"}: begin van de onderbreking
+        self.gemist: dict | None = None  # kandidaat: {"sinds", "terug", "ref", "waarde"}
+        # True = teller begint per sessie bij 0 (bijv. Easee), False = doorlopende meterstand.
+        self.teller_per_sessie: bool | None = None
         self.outputs: list[tuple[str, dict]] = []
 
     # ------------------------------------------------------------------ input
@@ -85,6 +91,8 @@ class SessionTracker:
             self.onderbreking = self.pending_end
         self.pending_end = None
         if self.session is None:
+            # Auto (nog) aangesloten na een onderbreking: de energie hoort bij deze sessie.
+            self.gemist = None
             self._start_session(ts, first)
 
     def _start_session(self, ts: datetime, onvolledig: bool = False) -> None:
@@ -105,13 +113,25 @@ class SessionTracker:
         self.onderbreking = None
 
     def feed_session_energy(self, ts: datetime, value: float | None) -> None:
+        vorige = self.last_ts
         ts = self._advance(ts)
-        if value is not None:
-            self.session_energy = (ts, value)
-            start = self.session.get("energie_start") if self.session else None
-            if start is not None and value < start - 0.005:
-                # Teller is gereset: dit is een echte per-sessie-teller, de waarde zelf telt.
-                self.session["energie_start"] = 0.0
+        if value is None:
+            # Begin van een onderbreking onthouden (vanaf het laatste moment met gegevens).
+            if self.meter_gat is None and self.gemist is None and self.session_energy:
+                self.meter_gat = {"sinds": _iso(vorige or ts), "waarde": self.session_energy[1]}
+            return
+        if self.meter_gat is not None:
+            if self.session is None:
+                self.gemist = {"sinds": self.meter_gat["sinds"], "terug": _iso(ts), "ref": self.meter_gat["waarde"]}
+            self.meter_gat = None
+        if self.gemist is not None:
+            self.gemist["waarde"] = value
+        self.session_energy = (ts, value)
+        start = self.session.get("energie_start") if self.session else None
+        if start is not None and value < start - 0.005:
+            # Teller is gereset: dit is een echte per-sessie-teller, de waarde zelf telt.
+            self.session["energie_start"] = 0.0
+            self.teller_per_sessie = True
 
     def feed_voertuig(self, ts: datetime, value: str | None) -> None:
         self._advance(ts)
@@ -158,6 +178,7 @@ class SessionTracker:
             self.q_start = boundary
         self._maybe_finalize(ts)
         self._integrate(ts)
+        self._maybe_gemist(ts)
         return ts
 
     def _integrate(self, ts: datetime) -> None:
@@ -175,6 +196,46 @@ class SessionTracker:
         if self.session and self.pending_end and ts >= self.pending_end + END_GRACE:
             self._integrate(self.pending_end + END_GRACE)
             self._finalize(self.pending_end, ts)
+
+    def _maybe_gemist(self, ts: datetime) -> None:
+        g = self.gemist
+        if not g or ts < _dt(g["terug"]) + END_GRACE:
+            return
+        self.gemist = None
+        if self.session is not None or g.get("waarde") is None:
+            return
+        ref, waarde = g["ref"], g["waarde"]
+        if waarde < ref - 0.005:
+            # Teller is tussendoor gereset: per-sessie-teller, de waarde zelf is de sessie.
+            self.teller_per_sessie = True
+            kwh = waarde
+        elif waarde > ref + 0.005:
+            kwh = waarde if self.teller_per_sessie else waarde - ref
+        else:
+            return
+        if kwh < MIN_SESSION_KWH:
+            return
+        start, einde = _dt(g["sinds"]), _dt(g["terug"])
+        q = floor_quarter(start)
+        prijs = self._price_from_slots(q)
+        rij = {"start": _iso(q), "kwh_vermogen": 0.0, "voertuig": None, **prijs, "kwh": kwh}
+        rij["kosten"] = kwh * prijs["prijs"] if prijs["prijs"] is not None else 0.0
+        session = {
+            "start": _iso(start),
+            "kwartieren": [rij],
+            "onvolledig": True,
+            "gemist": True,
+            "energie_start": None,
+            "einde": _iso(einde),
+            "kwh": kwh,
+            "kwh_vermogen": 0.0,
+            "kwh_bron": "laadpaal",
+            "kosten": rij["kosten"],
+            "terugval": True,
+            "voertuig": None,
+        }
+        self.outputs.append(("session_finished", session))
+        self.outputs.append(("session_missed", {"sinds": session["start"], "tot": session["einde"], "kwh": kwh}))
 
     def _tariff_at(self, ts: datetime) -> tuple[datetime, float | None] | None:
         found = None
@@ -239,6 +300,8 @@ class SessionTracker:
 
         start = _dt(session["start"])
         rows = session["kwartieren"]
+        if session.get("energie_start") is not None:
+            self.teller_per_sessie = session["energie_start"] < 0.005
         integrated = sum(r["kwh_vermogen"] for r in rows)
         meter = None
         base = session.get("energie_start")
@@ -312,6 +375,9 @@ class SessionTracker:
             "bekend_voertuig": self.bekend_voertuig,
             "onderbreking": _iso(self.onderbreking),
             "outage": self.outage,
+            "meter_gat": self.meter_gat,
+            "gemist": self.gemist,
+            "teller_per_sessie": self.teller_per_sessie,
         }
 
     @classmethod
@@ -338,6 +404,9 @@ class SessionTracker:
         t.bekend_voertuig = data.get("bekend_voertuig")
         t.onderbreking = _dt(data.get("onderbreking"))
         t.outage = data.get("outage")
+        t.meter_gat = data.get("meter_gat")
+        t.gemist = data.get("gemist")
+        t.teller_per_sessie = data.get("teller_per_sessie")
         # Vermogen is na een herstart onbekend tot de eerste nieuwe meting.
         t.power = None
         return t

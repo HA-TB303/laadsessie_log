@@ -54,6 +54,7 @@ from .tracker import SOURCE_LIVE, SessionTracker
 _LOGGER = logging.getLogger(__name__)
 
 NOTIFICATION_ID = f"{DOMAIN}_zonneplan"
+NOTIFICATION_GEMIST = f"{DOMAIN}_gemist"
 REPORT_DIR = "laadsessies/rapporten"
 OUDE_REPORT_DIR = "www/laadrapporten"  # tot en met 1.4.0: openbaar via /local
 VIEWER_DIR = "www/laadrapporten/viewer"
@@ -216,6 +217,11 @@ class LaadLog:
         self.sessions = await self.hass.async_add_executor_job(_read_json, self.sessions_path, [])
         if state:
             self.tracker = SessionTracker.from_dict(state, self.tz, self.disconnected, self.tariff_stale)
+        if self.tracker.teller_per_sessie is None:
+            # Bestaande installaties: soort teller afleiden uit de laatst opgeslagen sessie.
+            starts = [s["energie_start"] for s in self.sessions if s.get("energie_start") is not None]
+            if starts:
+                self.tracker.teller_per_sessie = starts[-1] < 0.005
         verplaatst = await self.hass.async_add_executor_job(
             _verplaats_oude_rapporten, self.hass.config.path(OUDE_REPORT_DIR), self.report_dir
         )
@@ -364,6 +370,9 @@ class LaadLog:
                 end = datetime.fromisoformat(data["einde"]).astimezone(self.tz)
                 months.add((end.year, end.month))
                 _LOGGER.info("Laadsessie afgerond: %s, %.2f kWh, EUR %.2f", data["start"], data["kwh"], data["kosten"])
+            elif kind == "session_missed":
+                # Ook tijdens het naspelen melden: juist dan wordt een gemiste sessie ontdekt.
+                self._notify_missed(data)
             elif kind == "tariff_outage" and not replay:
                 self._notify_outage(data)
             elif kind == "tariff_restored" and not replay:
@@ -406,6 +415,25 @@ class LaadLog:
             ),
             title=f"{self.tariff_name}-tarief niet beschikbaar",
             notification_id=NOTIFICATION_ID,
+        )
+
+    def _notify_missed(self, data: dict) -> None:
+        since = self._local(data["sinds"])
+        until = self._local(data["tot"])
+        _LOGGER.warning(
+            "Laadsessie log: gemiste laadsessie van %.2f kWh tussen %s en %s vastgelegd", data["kwh"], since, until
+        )
+        persistent_notification.async_create(
+            self.hass,
+            (
+                f"De sessie-energiesensor (`{self.conf[CONF_SESSION_ENERGY]}`) was niet beschikbaar van "
+                f"**{since:%d-%m-%Y %H:%M}** tot **{until:%d-%m-%Y %H:%M}** en gaf daarna een andere waarde. "
+                f"In die periode is dus geladen zonder dat Home Assistant het zag.\n\n"
+                f"Er is een onvolledige sessie van **{data['kwh']:.2f} kWh** vastgelegd over die hele periode, "
+                "met het terugvaltarief. De exacte start- en eindtijd staan in de app van de laadpaal."
+            ),
+            title="Gemiste laadsessie vastgelegd",
+            notification_id=f"{NOTIFICATION_GEMIST}_{data['sinds']}",
         )
 
     def _notify_restored(self, data: dict) -> None:
