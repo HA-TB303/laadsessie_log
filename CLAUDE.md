@@ -46,7 +46,7 @@ gh repo clone HA-TB303/laadsessie_log
 | Bestand | Inhoud |
 |---------|--------|
 | `__init__.py` | `LaadLog`: setup, luistert naar state changes, speelt bij start de recorder-historie na (eerste keer 10 dagen), schrijft sessies, maakt rapporten (optioneel los per voertuig, zie `CONF_VOERTUIG`/`async_generate_voertuigen`), migreert eenmalig het oude `gegevens.json`-tekstveldenbestand naar de instellingen (`_migreer_rapportgegevens`), service `genereer_rapport`, retentie 15 maanden. |
-| `tracker.py` | `SessionTracker`: pure logica (geen HA-afhankelijkheid) die vermogen/status/sessie-energie/tarief/voertuig per kwartier integreert tot sessies; serialiseerbaar via `to_dict`/`from_dict`. |
+| `tracker.py` | `SessionTracker`: pure logica (geen HA-afhankelijkheid) die vermogen/status/sessie-energie/tarief/voertuig per kwartier integreert tot sessies, en een gemiste sessie vastlegt als de sessie-energie na een onderbreking een andere waarde heeft (`meter_gat`/`gemist`, `teller_per_sessie`); serialiseerbaar via `to_dict`/`from_dict`. |
 | `pdf.py` | `build_report`: genereert de PDF zonder externe libraries (`requirements` is leeg – zo houden). |
 | `sensor.py` | Sensoren: energie/kosten deze maand (incl. `per_voertuig`- en `per_dag`-attribuut, dat laatste met kWh per voertuig per dag), actieve sessie, kosten lopende sessie, rapporten, tariefstatus. |
 | `dashboard.py` | Ingebouwd alleen-lezen Lovelace-dashboard `/laadsessie-log` (zijbalk "Laadsessies"), bij elke load opgebouwd uit de opties + entity registry (op `unique_id`); toont een Voertuig-kolom zodra `CONF_VOERTUIG` is ingesteld. Gebruikt interne lovelace-API (`LOVELACE_DATA`, `LovelaceConfig`) – na HA-updates controleren. |
